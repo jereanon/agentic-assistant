@@ -638,6 +638,15 @@ impl Config {
         let mut config: Config = toml::from_str(&expanded)?;
         config.validate()?;
 
+        // Allow HERALD_DATA_DIR env var to override the config file's data_dir.
+        // This is used by the NixOS/nix-darwin modules to control where state
+        // is written without editing the TOML.
+        if let Ok(dir) = std::env::var("HERALD_DATA_DIR") {
+            if !dir.is_empty() {
+                config.data_dir = PathBuf::from(dir);
+            }
+        }
+
         // Auto-detect provider API key if none is configured.
         // Priority: 1) ANTHROPIC_API_KEY env var, 2) Claude CLI credentials
         if !config.has_provider_key() {
