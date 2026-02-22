@@ -799,24 +799,59 @@ fn substitute_env_vars(input: &str) -> String {
 // Claude CLI credential detection
 // ---------------------------------------------------------------------------
 
+/// Claude Code OAuth client ID (public, used for PKCE flow).
+const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+
 /// Attempt to read an API key from the locally installed Claude CLI.
 ///
-/// On macOS, Claude Code stores OAuth credentials in the system keychain
-/// under the service "Claude Code-credentials". The access token stored there
-/// (`sk-ant-oat01-...`) works as a Bearer token against the Anthropic API.
+/// Credential sources (tried in order):
+/// 1. macOS keychain (`security find-generic-password` for "Claude Code-credentials")
+/// 2. `~/.claude/.credentials.json` (Linux / fallback on any platform)
 ///
-/// Returns `None` if the CLI is not installed, credentials are missing, or
-/// we're on a platform where keychain access isn't available.
+/// The access token (`sk-ant-oat01-...`) works as a Bearer token against the
+/// Anthropic API. If the token is expired, we attempt a refresh and persist
+/// the updated credentials back to the original store.
 pub(crate) fn read_claude_cli_credentials() -> Option<String> {
+    // Try macOS keychain first (only compiled on macOS)
     #[cfg(target_os = "macos")]
     {
-        read_claude_cli_credentials_macos()
+        if let Some(token) = read_claude_cli_credentials_macos() {
+            return Some(token);
+        }
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
-    }
+
+    // Fall back to the credentials file (works on all platforms)
+    read_claude_cli_credentials_file()
 }
+
+// ---- Credentials file backend (Linux / universal fallback) ----------------
+
+/// Read Claude CLI credentials from `~/.claude/.credentials.json`.
+///
+/// On Linux (and Windows), Claude Code writes OAuth tokens to this JSON file
+/// instead of using a system keychain. The format is identical to the macOS
+/// keychain entry:
+/// ```json
+/// {"claudeAiOauth":{"accessToken":"sk-ant-oat01-...","refreshToken":"...","expiresAt":...}}
+/// ```
+fn read_claude_cli_credentials_file() -> Option<String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let creds_path = PathBuf::from(&home).join(".claude").join(".credentials.json");
+
+    let json_str = std::fs::read_to_string(&creds_path).ok()?;
+    let json_str = json_str.trim();
+
+    if json_str.is_empty() {
+        return None;
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    extract_oauth_token(&parsed, &CredentialStore::File(creds_path))
+}
+
+// ---- macOS keychain backend -----------------------------------------------
 
 #[cfg(target_os = "macos")]
 fn read_claude_cli_credentials_macos() -> Option<String> {
@@ -868,9 +903,30 @@ fn try_keychain_account(account: &str) -> Option<String> {
         return None;
     }
 
-    // The keychain entry is JSON like:
-    // {"claudeAiOauth":{"accessToken":"sk-ant-oat01-...","refreshToken":"...",...}}
     let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    extract_oauth_token(
+        &parsed,
+        &CredentialStore::Keychain(account.to_string()),
+    )
+}
+
+// ---- Shared token extraction & refresh ------------------------------------
+
+/// Where the credentials came from, so we can write refreshed tokens back.
+enum CredentialStore {
+    /// `~/.claude/.credentials.json`
+    File(PathBuf),
+    /// macOS keychain account name
+    #[cfg(target_os = "macos")]
+    Keychain(String),
+}
+
+/// Extract the OAuth access token from parsed credentials JSON. Handles
+/// expiry checking and automatic refresh regardless of the backing store.
+fn extract_oauth_token(
+    parsed: &serde_json::Value,
+    store: &CredentialStore,
+) -> Option<String> {
     let oauth = parsed.get("claudeAiOauth")?;
     let token = oauth.get("accessToken")?.as_str()?;
 
@@ -890,7 +946,7 @@ fn try_keychain_account(account: &str) -> Option<String> {
             // Token is expired or expiring soon — try to refresh
             if let Some(refresh_token) = oauth.get("refreshToken").and_then(|v| v.as_str()) {
                 eprintln!("[config] OAuth token expired, attempting refresh...");
-                if let Some(new_token) = refresh_oauth_token(account, refresh_token, &parsed) {
+                if let Some(new_token) = refresh_oauth_token(store, refresh_token, parsed) {
                     return Some(new_token);
                 }
                 eprintln!("[config] OAuth token refresh failed");
@@ -903,14 +959,9 @@ fn try_keychain_account(account: &str) -> Option<String> {
     Some(token.to_string())
 }
 
-/// Claude Code OAuth client ID (public, used for PKCE flow).
-#[cfg(target_os = "macos")]
-const CLAUDE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-
-/// Refresh an expired OAuth token and update the keychain entry.
-#[cfg(target_os = "macos")]
+/// Refresh an expired OAuth token and persist the updated credentials.
 fn refresh_oauth_token(
-    account: &str,
+    store: &CredentialStore,
     refresh_token: &str,
     current_creds: &serde_json::Value,
 ) -> Option<String> {
@@ -963,42 +1014,64 @@ fn refresh_oauth_token(
         oauth["expiresAt"] = serde_json::Value::Number(serde_json::Number::from(new_expires_at));
     }
 
-    let updated_json = serde_json::to_string(&updated).ok()?;
+    // Persist updated credentials back to the original store
+    let persisted = persist_credentials(store, &updated);
 
-    // Update the keychain: delete old, add new
-    let _ = std::process::Command::new("security")
-        .args([
-            "delete-generic-password",
-            "-s",
-            "Claude Code-credentials",
-            "-a",
-            account,
-        ])
-        .output();
-
-    let add_result = std::process::Command::new("security")
-        .args([
-            "add-generic-password",
-            "-s",
-            "Claude Code-credentials",
-            "-a",
-            account,
-            "-w",
-            &updated_json,
-        ])
-        .output()
-        .ok()?;
-
-    if add_result.status.success() {
+    if persisted {
         eprintln!(
             "[config] OAuth token refreshed successfully (expires in {}h)",
             expires_in / 3600
         );
-        Some(new_access.to_string())
     } else {
-        // Keychain update failed, but we still have a valid token for this session
-        eprintln!("[config] OAuth token refreshed but keychain update failed");
-        Some(new_access.to_string())
+        eprintln!("[config] OAuth token refreshed but credential store update failed");
+    }
+
+    // Return the new token regardless of whether persistence succeeded —
+    // it's still valid for this process's lifetime.
+    Some(new_access.to_string())
+}
+
+/// Write updated credentials back to the backing store.
+fn persist_credentials(store: &CredentialStore, creds: &serde_json::Value) -> bool {
+    match store {
+        CredentialStore::File(path) => {
+            let json = match serde_json::to_string_pretty(creds) {
+                Ok(j) => j,
+                Err(_) => return false,
+            };
+            std::fs::write(path, json).is_ok()
+        }
+        #[cfg(target_os = "macos")]
+        CredentialStore::Keychain(account) => {
+            let json = match serde_json::to_string(creds) {
+                Ok(j) => j,
+                Err(_) => return false,
+            };
+            // Delete old entry, then add new one
+            let _ = std::process::Command::new("security")
+                .args([
+                    "delete-generic-password",
+                    "-s",
+                    "Claude Code-credentials",
+                    "-a",
+                    account,
+                ])
+                .output();
+
+            std::process::Command::new("security")
+                .args([
+                    "add-generic-password",
+                    "-s",
+                    "Claude Code-credentials",
+                    "-a",
+                    account,
+                    "-w",
+                    &json,
+                ])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
     }
 }
 
