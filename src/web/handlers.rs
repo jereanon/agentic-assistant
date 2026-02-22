@@ -1,0 +1,1811 @@
+use std::sync::Arc;
+
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use axum::Json;
+use serde::{Deserialize, Serialize};
+
+use agentic_rs::channels::gateway::{ChatRequest, ErrorResponse};
+use agentic_rs::cron::types::*;
+use agentic_rs::namespace::Namespace;
+use agentic_rs::provider::Provider;
+use agentic_rs::providers::claude::ClaudeProvider;
+use agentic_rs::providers::openai::OpenAIProvider;
+
+use crate::config;
+
+use super::AppState;
+
+// ---------------------------------------------------------------------------
+// Auth helper
+// ---------------------------------------------------------------------------
+
+pub fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+}
+
+fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), impl IntoResponse> {
+    if !state.gateway.authenticate(extract_bearer(headers)) {
+        Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "unauthorized".into(),
+                code: "unauthorized".into(),
+            }),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+
+pub async fn health() -> impl IntoResponse {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/status
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct StatusResponse {
+    pub provider_configured: bool,
+    pub provider_type: String,
+    pub model: String,
+}
+
+pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
+    Json(StatusResponse {
+        provider_configured: state.dynamic_provider.is_configured(),
+        provider_type: state.config_provider_type.clone(),
+        model: state.config_model.clone(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/config
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct ConfigureProviderRequest {
+    pub api_key: String,
+    /// "claude" or "openai" — defaults to the config file setting.
+    pub provider_type: Option<String>,
+    /// Model name — defaults to the config file setting.
+    pub model: Option<String>,
+    /// Custom API URL (for OpenAI-compatible endpoints).
+    pub api_url: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ConfigureProviderResponse {
+    pub success: bool,
+    pub provider_type: String,
+    pub model: String,
+}
+
+pub async fn configure_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ConfigureProviderRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    if request.api_key.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "api_key is required".into(),
+                code: "bad_request".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    let provider_type = request
+        .provider_type
+        .as_deref()
+        .unwrap_or(&state.config_provider_type);
+
+    let model = request
+        .model
+        .as_deref()
+        .unwrap_or(&state.config_model);
+
+    let api_url = request
+        .api_url
+        .as_deref()
+        .or(state.config_api_url.as_deref());
+
+    let new_provider: Arc<dyn Provider> = match provider_type {
+        "openai" => {
+            let mut p = OpenAIProvider::new(&request.api_key, model);
+            if let Some(url) = api_url {
+                p = p.with_api_url(url);
+            }
+            Arc::new(p)
+        }
+        _ => Arc::new(ClaudeProvider::new(&request.api_key, model)),
+    };
+
+    // Hot-swap the provider
+    state.dynamic_provider.swap(new_provider).await;
+
+    eprintln!(
+        "[config] Provider configured via web UI: {} ({})",
+        provider_type, model
+    );
+
+    (
+        StatusCode::OK,
+        Json(ConfigureProviderResponse {
+            success: true,
+            provider_type: provider_type.to_string(),
+            model: model.to_string(),
+        }),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/chat
+// ---------------------------------------------------------------------------
+
+pub async fn chat(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ChatRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    match state.gateway.submit_and_wait(request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "runtime_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct SessionInfo {
+    pub namespace: String,
+    pub name: Option<String>,
+    pub message_count: usize,
+    pub created_at: String,
+    pub updated_at: String,
+    pub working_directory: Option<String>,
+    pub chaos_mode: bool,
+}
+
+pub async fn list_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    // List all web sessions
+    let prefix = Namespace::new("web");
+    match state.store.list(Some(&prefix)).await {
+        Ok(namespaces) => {
+            let mut sessions = Vec::new();
+            for ns in namespaces {
+                if let Ok(Some(session)) = state.store.load(&ns).await {
+                    let name = session
+                        .metadata
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let working_directory = session
+                        .metadata
+                        .get("working_directory")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let chaos_mode = session
+                        .metadata
+                        .get("chaos_mode")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    sessions.push(SessionInfo {
+                        namespace: ns.key(),
+                        name,
+                        message_count: session.message_count(),
+                        created_at: session.created_at.to_rfc3339(),
+                        updated_at: session.updated_at.to_rfc3339(),
+                        working_directory,
+                        chaos_mode,
+                    });
+                }
+            }
+            // Sort by most recently updated
+            sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            (StatusCode::OK, Json(sessions)).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/:id
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct SessionDetail {
+    pub namespace: String,
+    pub messages: Vec<MessageInfo>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize)]
+pub struct MessageInfo {
+    pub role: String,
+    pub content: String,
+}
+
+pub async fn get_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(session)) => {
+            let detail = SessionDetail {
+                namespace: ns.key(),
+                messages: session
+                    .messages
+                    .iter()
+                    .map(|m| MessageInfo {
+                        role: format!("{:?}", m.role).to_lowercase(),
+                        content: m.content.clone(),
+                    })
+                    .collect(),
+                created_at: session.created_at.to_rfc3339(),
+                updated_at: session.updated_at.to_rfc3339(),
+            };
+            (StatusCode::OK, Json(detail)).into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/sessions/:id
+// ---------------------------------------------------------------------------
+
+pub async fn delete_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.delete(&ns).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "deleted": true })),
+        )
+            .into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/settings
+// ---------------------------------------------------------------------------
+
+pub async fn get_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let auth_source = state.auth_source.read().await.clone();
+    let discord_state = state.discord_manager.state().await;
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "provider": {
+                "auth_source": auth_source,
+                "configured": state.dynamic_provider.is_configured(),
+                "provider_type": state.config_provider_type,
+                "model": state.config_model,
+                "api_url": state.config_api_url,
+            },
+            "discord": {
+                "connected": discord_state.connected,
+                "token_hint": discord_state.token_hint,
+                "filter": discord_state.filter,
+                "allowed_users": discord_state.allowed_users,
+            }
+        })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/settings/provider
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct UpdateProviderRequest {
+    pub api_key: Option<String>,
+    pub provider_type: Option<String>,
+    pub model: Option<String>,
+    pub api_url: Option<String>,
+}
+
+pub async fn update_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateProviderRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let provider_type = request
+        .provider_type
+        .as_deref()
+        .unwrap_or(&state.config_provider_type);
+
+    let model = request
+        .model
+        .as_deref()
+        .unwrap_or(&state.config_model);
+
+    let api_url = request
+        .api_url
+        .as_deref()
+        .or(state.config_api_url.as_deref());
+
+    // If a new API key is provided, create and swap the provider
+    if let Some(ref api_key) = request.api_key {
+        if api_key.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "api_key cannot be empty".into(),
+                    code: "bad_request".into(),
+                }),
+            )
+                .into_response();
+        }
+
+        let new_provider: Arc<dyn Provider> = match provider_type {
+            "openai" => {
+                let mut p = OpenAIProvider::new(api_key, model);
+                if let Some(url) = api_url {
+                    p = p.with_api_url(url);
+                }
+                Arc::new(p)
+            }
+            _ => Arc::new(ClaudeProvider::new(api_key, model)),
+        };
+
+        state.dynamic_provider.swap(new_provider).await;
+
+        let mut auth = state.auth_source.write().await;
+        *auth = "web_ui".to_string();
+
+        eprintln!(
+            "[settings] Provider updated via settings: {} ({})",
+            provider_type, model
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "provider_type": provider_type,
+            "model": model,
+            "auth_source": "web_ui",
+        })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/settings/discord
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct UpdateDiscordRequest {
+    pub token: Option<String>,
+    pub filter: Option<String>,
+    pub allowed_users: Option<Vec<String>>,
+}
+
+pub async fn update_discord(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateDiscordRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    // Get current state as defaults
+    let current = state.discord_manager.state().await;
+
+    let token = request.token.as_deref()
+        .filter(|t| !t.is_empty());
+    let filter = request.filter.as_deref()
+        .unwrap_or(&current.filter);
+    let allowed_users = request.allowed_users.as_ref()
+        .unwrap_or(&current.allowed_users);
+
+    // Validate filter
+    match filter {
+        "mentions" | "all" => {}
+        "dm" => {
+            if allowed_users.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "allowed_users must not be empty when filter is \"dm\"".into(),
+                        code: "bad_request".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("filter must be \"mentions\", \"all\", or \"dm\", got \"{}\"", other),
+                    code: "bad_request".into(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    // Save token to config file if provided
+    if let Some(tok) = token {
+        if let Err(e) = config::save_discord_token(&state.config_path, tok) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to save config: {}", e),
+                    code: "config_write_error".into(),
+                }),
+            )
+                .into_response();
+        }
+        eprintln!("[settings] Discord token saved to config file");
+    }
+
+    // Save filter/allowed_users to config file
+    if let Err(e) = config::save_discord_settings(
+        &state.config_path,
+        filter,
+        allowed_users,
+    ) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to save config: {}", e),
+                code: "config_write_error".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Determine the token to use for reconnecting
+    // If a new token was provided, use it; otherwise reload from config
+    let connect_token = if let Some(tok) = token {
+        Some(tok.to_string())
+    } else {
+        // Try to read the current token from the config file
+        config::read_discord_token(&state.config_path).ok().flatten()
+    };
+
+    if let Some(tok) = connect_token {
+        // Update the discord API config for channel listing
+        {
+            let mut api = state.discord_api.write().await;
+            *api = Some(agentic_rs::tools::discord::DiscordConfig::new(&tok));
+        }
+
+        // Connect (or reconnect) to Discord
+        match state.discord_manager.connect(
+            &tok,
+            filter,
+            allowed_users.clone(),
+            &current.namespace_prefix,
+        ).await {
+            Ok(()) => {
+                eprintln!("[settings] Discord reconnected with new settings");
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "connected": true,
+                    })),
+                )
+                    .into_response()
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Settings saved but Discord connection failed: {}", e),
+                    code: "discord_connect_error".into(),
+                }),
+            )
+                .into_response(),
+        }
+    } else {
+        // No token available, just save settings
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "connected": false,
+            })),
+        )
+            .into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/settings/provider/detect
+// ---------------------------------------------------------------------------
+
+pub async fn detect_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    // Try environment variable first
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        if !key.is_empty() {
+            let provider: Arc<dyn Provider> =
+                Arc::new(ClaudeProvider::new(&key, &state.config_model));
+            state.dynamic_provider.swap(provider).await;
+
+            let mut auth = state.auth_source.write().await;
+            *auth = "env".to_string();
+
+            eprintln!("[settings] Provider auto-detected from ANTHROPIC_API_KEY");
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "auth_source": "env",
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    // Try Claude CLI credentials
+    if let Some(key) = config::read_claude_cli_credentials() {
+        let provider: Arc<dyn Provider> =
+            Arc::new(ClaudeProvider::new(&key, &state.config_model));
+        state.dynamic_provider.swap(provider).await;
+
+        let mut auth = state.auth_source.write().await;
+        *auth = "cli".to_string();
+
+        eprintln!("[settings] Provider auto-detected from Claude CLI credentials");
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "auth_source": "cli",
+            })),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": false,
+            "error": "No credentials found. Set ANTHROPIC_API_KEY or install Claude CLI.",
+        })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/channels
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct ChannelInfo {
+    pub id: String,
+    pub name: String,
+    pub channel_type: String,
+    pub group: String,
+}
+
+pub async fn list_channels(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let mut channels: Vec<ChannelInfo> = Vec::new();
+
+    // Add web sessions
+    let prefix = Namespace::new("web");
+    if let Ok(namespaces) = state.store.list(Some(&prefix)).await {
+        for ns in namespaces {
+            if let Ok(Some(session)) = state.store.load(&ns).await {
+                let name = session
+                    .metadata
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        let key = ns.key();
+                        let short = key.strip_prefix("web:").unwrap_or(&key);
+                        format!("Session {}", &short[..8.min(short.len())])
+                    });
+                channels.push(ChannelInfo {
+                    id: ns.key(),
+                    name,
+                    channel_type: "web_session".into(),
+                    group: "Web Sessions".into(),
+                });
+            }
+        }
+    }
+
+    // Add Discord channels if configured
+    let discord_api = state.discord_api.read().await;
+    if let Some(ref dc) = *discord_api {
+        // Fetch guilds the bot is in
+        #[derive(serde::Deserialize)]
+        struct PartialGuild {
+            id: String,
+            name: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct DiscordChannel {
+            id: String,
+            name: Option<String>,
+            #[serde(rename = "type")]
+            channel_type: u8,
+        }
+
+        if let Ok(resp) = dc
+            .request(reqwest::Method::GET, "users/@me/guilds")
+            .send()
+            .await
+        {
+            if let Ok(guilds) = resp.json::<Vec<PartialGuild>>().await {
+                for guild in guilds {
+                    // Fetch channels for each guild
+                    if let Ok(resp) = dc
+                        .request(
+                            reqwest::Method::GET,
+                            &format!("guilds/{}/channels", guild.id),
+                        )
+                        .send()
+                        .await
+                    {
+                        if let Ok(discord_channels) =
+                            resp.json::<Vec<DiscordChannel>>().await
+                        {
+                            for ch in discord_channels {
+                                // Only include text-based channels
+                                let type_name = match ch.channel_type {
+                                    0 => "text",
+                                    5 => "announcement",
+                                    15 => "forum",
+                                    _ => continue,
+                                };
+                                channels.push(ChannelInfo {
+                                    id: ch.id,
+                                    name: ch.name.unwrap_or_else(|| "unnamed".into()),
+                                    channel_type: type_name.into(),
+                                    group: format!("Discord: {}", guild.name),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(channels)).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/cron
+// ---------------------------------------------------------------------------
+
+pub async fn list_cron_jobs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "jobs": [], "enabled": false })),
+            )
+                .into_response();
+        }
+    };
+
+    match svc.list_jobs().await {
+        Ok(jobs) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "jobs": jobs, "enabled": true })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/cron
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CreateCronJobRequest {
+    pub name: String,
+    pub schedule: serde_json::Value,
+    pub payload: serde_json::Value,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+    pub model: Option<String>,
+}
+
+fn default_namespace() -> String {
+    "web".into()
+}
+
+pub async fn create_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCronJobRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse schedule
+    let schedule = match parse_schedule_from_json(&request.schedule) {
+        Ok(s) => s,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: msg,
+                    code: "bad_request".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse payload
+    let payload = match parse_payload_from_json(&request.payload) {
+        Ok(p) => p,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: msg,
+                    code: "bad_request".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let mut job = CronJob::new(&request.name, schedule, payload, &request.namespace);
+    job.model = request.model;
+    match svc.add_job(job).await {
+        Ok(job) => (StatusCode::CREATED, Json(serde_json::json!(job))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/cron/:id
+// ---------------------------------------------------------------------------
+
+pub async fn get_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match svc.get_job(&id).await {
+        Ok(Some(job)) => (StatusCode::OK, Json(serde_json::json!(job))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Job not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/cron/:id
+// ---------------------------------------------------------------------------
+
+pub async fn delete_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match svc.delete_job(&id).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "deleted": true })),
+        )
+            .into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Job not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/cron/:id
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct UpdateCronJobRequest {
+    pub name: Option<String>,
+    pub schedule: Option<serde_json::Value>,
+    pub payload: Option<serde_json::Value>,
+    pub namespace: Option<String>,
+    pub model: Option<String>,
+}
+
+pub async fn update_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateCronJobRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let mut job = match svc.get_job(&id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Job not found: {}", id),
+                    code: "not_found".into(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "cron_error".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Update fields if provided
+    if let Some(name) = request.name {
+        job.name = name;
+    }
+    if let Some(ns) = request.namespace {
+        job.namespace = ns;
+    }
+    job.model = request.model;
+    if let Some(ref schedule_val) = request.schedule {
+        match parse_schedule_from_json(schedule_val) {
+            Ok(s) => {
+                job.schedule = s;
+                // Recompute next_run
+                job.next_run = job.compute_next_run(chrono::Utc::now());
+            }
+            Err(msg) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: msg,
+                        code: "bad_request".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+    if let Some(ref payload_val) = request.payload {
+        match parse_payload_from_json(payload_val) {
+            Ok(p) => job.payload = p,
+            Err(msg) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: msg,
+                        code: "bad_request".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Save via the store (accessed through the service)
+    match svc.add_job(job.clone()).await {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!(job))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/cron/:id/pause
+// ---------------------------------------------------------------------------
+
+pub async fn pause_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match svc.pause_job(&id).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "paused": true })),
+        )
+            .into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Job not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/cron/:id/resume
+// ---------------------------------------------------------------------------
+
+pub async fn resume_cron_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let svc = match &state.cron_service {
+        Some(svc) => svc,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Cron service is disabled".into(),
+                    code: "cron_disabled".into(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match svc.resume_job(&id).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "resumed": true })),
+        )
+            .into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Job not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "cron_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/sessions/:id/name
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct RenameSessionRequest {
+    pub name: String,
+}
+
+pub async fn rename_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<RenameSessionRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(mut session)) => {
+            let name = request.name.trim().to_string();
+            if name.is_empty() {
+                session.metadata.remove("name");
+            } else {
+                session
+                    .metadata
+                    .insert("name".into(), serde_json::json!(name));
+            }
+            match state.store.save(&session).await {
+                Ok(()) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "success": true, "name": name })),
+                )
+                    .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                        code: "store_error".into(),
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/sessions/:id/directory
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct SetDirectoryRequest {
+    pub directory: String,
+}
+
+pub async fn set_session_directory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<SetDirectoryRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(mut session)) => {
+            let dir = request.directory.trim().to_string();
+            if dir.is_empty() {
+                session.metadata.remove("working_directory");
+            } else {
+                // Validate that the directory exists
+                let path = std::path::Path::new(&dir);
+                if !path.is_dir() {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": format!("directory does not exist: {}", dir)
+                        })),
+                    )
+                        .into_response();
+                }
+                session
+                    .metadata
+                    .insert("working_directory".into(), serde_json::json!(dir));
+            }
+            match state.store.save(&session).await {
+                Ok(()) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "working_directory": dir
+                    })),
+                )
+                    .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                        code: "store_error".into(),
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/sessions/:id/chaos-mode
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct SetChaosModeRequest {
+    pub enabled: bool,
+}
+
+pub async fn set_chaos_mode(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(request): Json<SetChaosModeRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(mut session)) => {
+            if request.enabled {
+                session
+                    .metadata
+                    .insert("chaos_mode".into(), serde_json::json!(true));
+            } else {
+                session.metadata.remove("chaos_mode");
+            }
+            match state.store.save(&session).await {
+                Ok(()) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "chaos_mode": request.enabled
+                    })),
+                )
+                    .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                        code: "store_error".into(),
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/fs/directories
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct ListDirectoriesQuery {
+    pub path: Option<String>,
+}
+
+pub async fn list_directories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListDirectoriesQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let raw_path = query.path.unwrap_or_default();
+    if raw_path.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "directories": Vec::<String>::new() })),
+        )
+            .into_response();
+    }
+
+    // Expand ~ to home directory
+    let expanded = if raw_path.starts_with('~') {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+        raw_path.replacen('~', &home, 1)
+    } else {
+        raw_path.clone()
+    };
+
+    let path = std::path::Path::new(&expanded);
+
+    // Determine parent directory and prefix filter
+    let (parent, prefix) = if expanded.ends_with('/') {
+        // User typed a full directory path — list its children
+        (path.to_path_buf(), String::new())
+    } else {
+        // User is typing a name — filter children of the parent
+        let parent = path.parent().unwrap_or(std::path::Path::new("/")).to_path_buf();
+        let prefix = path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        (parent, prefix)
+    };
+
+    // Read the parent directory
+    let entries = match std::fs::read_dir(&parent) {
+        Ok(entries) => entries,
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "directories": Vec::<String>::new() })),
+            )
+                .into_response();
+        }
+    };
+
+    let show_hidden = prefix.starts_with('.');
+    let prefix_lower = prefix.to_lowercase();
+
+    let mut dirs: Vec<String> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_dir() {
+                return None;
+            }
+
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            // Skip hidden dirs unless the prefix starts with '.'
+            if !show_hidden && name.starts_with('.') {
+                return None;
+            }
+
+            // Filter by prefix
+            if !prefix.is_empty() && !name.to_lowercase().starts_with(&prefix_lower) {
+                return None;
+            }
+
+            Some(entry.path().to_string_lossy().to_string())
+        })
+        .collect();
+
+    dirs.sort();
+    dirs.truncate(20);
+
+    (StatusCode::OK, Json(serde_json::json!({ "directories": dirs }))).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Cron JSON parsing helpers
+// ---------------------------------------------------------------------------
+
+fn parse_schedule_from_json(v: &serde_json::Value) -> Result<CronScheduleType, String> {
+    let stype = v.get("type").and_then(|v| v.as_str()).ok_or("missing schedule.type")?;
+    match stype {
+        "at" => {
+            let dt_str = v.get("datetime").and_then(|v| v.as_str())
+                .ok_or("missing schedule.datetime")?;
+            let dt: chrono::DateTime<chrono::Utc> = dt_str.parse()
+                .map_err(|e| format!("invalid datetime: {}", e))?;
+            Ok(CronScheduleType::At { datetime: dt })
+        }
+        "every" => {
+            let ms = v.get("interval_ms").and_then(|v| v.as_u64())
+                .ok_or("missing schedule.interval_ms")?;
+            Ok(CronScheduleType::Every { interval_ms: ms })
+        }
+        "cron" => {
+            let expr = v.get("expression").and_then(|v| v.as_str())
+                .ok_or("missing schedule.expression")?;
+            // Validate
+            agentic_rs::scheduler::CronSchedule::parse(expr)
+                .map_err(|e| format!("invalid cron: {}", e))?;
+            Ok(CronScheduleType::Cron { expression: expr.into() })
+        }
+        _ => Err(format!("unknown schedule type: {}", stype)),
+    }
+}
+
+fn parse_payload_from_json(v: &serde_json::Value) -> Result<CronPayload, String> {
+    let ptype = v.get("type").and_then(|v| v.as_str()).ok_or("missing payload.type")?;
+    match ptype {
+        "agent_turn" => {
+            let prompt = v.get("prompt").and_then(|v| v.as_str())
+                .ok_or("missing payload.prompt")?;
+            Ok(CronPayload::AgentTurn { prompt: prompt.into() })
+        }
+        "system_event" => {
+            let message = v.get("message").and_then(|v| v.as_str())
+                .ok_or("missing payload.message")?;
+            Ok(CronPayload::SystemEvent { message: message.into() })
+        }
+        _ => Err(format!("unknown payload type: {}", ptype)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct AgentRequest {
+    pub name: String,
+    pub personality: Option<String>,
+    pub system_prompt: Option<String>,
+    pub model: Option<String>,
+}
+
+pub async fn list_agents(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let profiles = state.agent_profiles.read().await;
+    let agents: Vec<serde_json::Value> = profiles
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "name": a.name,
+                "personality": a.personality,
+                "system_prompt": a.system_prompt,
+                "model": a.model,
+            })
+        })
+        .collect();
+
+    (StatusCode::OK, Json(agents)).into_response()
+}
+
+pub async fn create_agent(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<AgentRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let name = request.name.trim().to_string();
+    if name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "name is required" })),
+        )
+            .into_response();
+    }
+
+    {
+        let profiles = state.agent_profiles.read().await;
+        if profiles.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": format!("agent '{}' already exists", name) })),
+            )
+                .into_response();
+        }
+    }
+
+    let profile = config::AgentProfileConfig {
+        name,
+        personality: request.personality.unwrap_or_else(|| "friendly, helpful, and concise".into()),
+        system_prompt: request.system_prompt,
+        model: request.model,
+    };
+
+    {
+        let mut profiles = state.agent_profiles.write().await;
+        profiles.push(profile);
+
+        // Save to config file
+        if let Err(e) = config::save_agents(&state.config_path, &profiles) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+}
+
+pub async fn update_agent(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Json(request): Json<AgentRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let new_name = request.name.trim().to_string();
+    let is_rename = !new_name.is_empty() && !new_name.eq_ignore_ascii_case(&name);
+
+    // Check for name conflicts when renaming
+    if is_rename {
+        let profiles = state.agent_profiles.read().await;
+        if profiles.iter().any(|a| a.name.eq_ignore_ascii_case(&new_name)) {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": format!("agent '{}' already exists", new_name) })),
+            )
+                .into_response();
+        }
+    }
+
+    {
+        let mut profiles = state.agent_profiles.write().await;
+        let agent = profiles.iter_mut().find(|a| a.name.eq_ignore_ascii_case(&name));
+
+        match agent {
+            Some(a) => {
+                if is_rename {
+                    a.name = new_name.clone();
+                }
+                if let Some(p) = request.personality {
+                    a.personality = p;
+                }
+                a.system_prompt = request.system_prompt;
+                a.model = request.model;
+            }
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({ "error": format!("agent '{}' not found", name) })),
+                )
+                    .into_response();
+            }
+        }
+
+        if let Err(e) = config::save_agents(&state.config_path, &profiles) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    }
+
+    // If renamed, update the runtime map key and default agent name
+    if is_rename {
+        let old_key = name.to_lowercase();
+        let new_key = new_name.to_lowercase();
+
+        let mut runtimes = state.runtimes.write().await;
+        if let Some(rt) = runtimes.remove(&old_key) {
+            runtimes.insert(new_key, rt);
+        }
+
+        let mut default = state.default_agent.write().await;
+        if default.eq_ignore_ascii_case(&name) {
+            *default = new_name;
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+}
+
+pub async fn delete_agent(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    {
+        let mut profiles = state.agent_profiles.write().await;
+
+        if profiles.len() <= 1 {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "cannot delete the last agent" })),
+            )
+                .into_response();
+        }
+
+        let before_len = profiles.len();
+        profiles.retain(|a| !a.name.eq_ignore_ascii_case(&name));
+
+        if profiles.len() == before_len {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": format!("agent '{}' not found", name) })),
+            )
+                .into_response();
+        }
+
+        if let Err(e) = config::save_agents(&state.config_path, &profiles) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    }
+
+    // Remove from runtimes map too
+    {
+        let mut runtimes = state.runtimes.write().await;
+        runtimes.remove(&name.to_lowercase());
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+}

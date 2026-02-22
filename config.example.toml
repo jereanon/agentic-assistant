@@ -1,0 +1,200 @@
+# =============================================================================
+# agentic-assistant configuration
+# =============================================================================
+# Environment variables can be referenced with ${VAR_NAME} syntax.
+# Copy this file to assistant.toml and fill in your values.
+#
+# QUICK START:
+#   1. If you have Claude Code (the CLI) installed, just create an empty
+#      assistant.toml and run the app. Your credentials are auto-detected
+#      from the Claude CLI's keychain entry — no API key needed.
+#
+#   2. Or, if ANTHROPIC_API_KEY is set in your environment, that works too.
+#
+#   3. Otherwise, create an empty assistant.toml and run the app. The web UI
+#      will start at http://localhost:8080 where you can enter your API key.
+#
+# All credential fields below are OPTIONAL. If omitted:
+#   - Provider API key: auto-detected from Claude CLI credentials (macOS) or
+#     ANTHROPIC_API_KEY env var, or configurable via the web UI
+#   - Discord: disabled (web-only mode)
+#   - Gateway: auto-enabled when no Discord token is set
+
+# -----------------------------------------------------------------------------
+# Agent identity
+# -----------------------------------------------------------------------------
+[agent]
+name = "Atlas"
+personality = "friendly, helpful, and concise"
+# Uncomment to override the auto-generated system prompt entirely:
+# system_prompt = "You are a custom assistant."
+
+# -----------------------------------------------------------------------------
+# Discord connection (optional)
+# -----------------------------------------------------------------------------
+# If no token is provided, Discord is disabled and the web UI is auto-enabled.
+[discord]
+# token = "${DISCORD_TOKEN}"
+# "mentions" = only respond when @mentioned (default)
+# "all"      = respond to every message (excluding bots)
+filter = "mentions"
+namespace_prefix = "discord"
+
+# -----------------------------------------------------------------------------
+# LLM provider (optional at startup)
+# -----------------------------------------------------------------------------
+# If no api_key is provided, the app tries (in order):
+#   1. Claude CLI credentials from the system keychain (macOS)
+#   2. ANTHROPIC_API_KEY environment variable
+#   3. Web UI setup screen at runtime
+[provider]
+# api_key = "${ANTHROPIC_API_KEY}"
+model = "claude-opus-4-6"
+max_tokens = 4096
+temperature = 0.7
+# Provider backend: "claude" (default) or "openai"
+provider_type = "claude"
+# Custom API URL for OpenAI-compatible endpoints (e.g. local LLM servers):
+# api_url = "http://localhost:8000/v1"
+
+# -----------------------------------------------------------------------------
+# Tools
+# -----------------------------------------------------------------------------
+[tools]
+# Discord tools: list channels, read/send messages, get server info
+discord = true
+
+# Fetch web page content as readable text
+web_fetch = true
+
+# Browser: read web pages with HTML content extraction
+browser = true
+
+# Web search via Brave Search API (requires API key)
+web_search = false
+web_search_api_key = "${BRAVE_API_KEY}"
+
+# Shell command execution (disabled by default for safety)
+exec = false
+# When exec is enabled, only these commands are allowed (empty = all allowed)
+exec_allowed_commands = ["ls", "cat", "grep", "curl", "date", "whoami"]
+exec_timeout_secs = 30
+
+# Document knowledge store (search/read documents)
+documents = false
+
+# Image generation via DALL-E (requires OpenAI API key)
+image_gen = false
+image_gen_api_key = "${OPENAI_API_KEY}"
+
+# Sub-agent delegation (spawn independent sub-agents for complex subtasks)
+delegation = false
+
+# Claude Code delegation (requires `claude` CLI installed locally)
+# Delegates coding tasks to the Claude CLI agent which can read, write,
+# and execute code autonomously. Returns a session_id for follow-ups.
+claude_code = false
+claude_code_allowed_tools = ["Read", "Edit", "Bash"]
+claude_code_max_turns = 10
+claude_code_timeout_secs = 300
+# Skip all permission prompts (fully autonomous — use with caution)
+claude_code_skip_permissions = false
+# Working directory for code tasks (optional):
+# claude_code_working_directory = "/path/to/workspace"
+
+# -----------------------------------------------------------------------------
+# Memory
+# -----------------------------------------------------------------------------
+[memory]
+# Enable remember/recall/forget tools for persistent context
+enabled = true
+
+# -----------------------------------------------------------------------------
+# Session persistence
+# -----------------------------------------------------------------------------
+[sessions]
+# "file"   = persist to disk (survives restarts)
+# "memory" = in-memory only (lost on restart)
+store = "file"
+path = "./data/sessions"
+
+# -----------------------------------------------------------------------------
+# Context window management
+# -----------------------------------------------------------------------------
+[context]
+max_tokens = 200000
+reserved_for_output = 4096
+
+# -----------------------------------------------------------------------------
+# Scheduler (cron-based tasks)
+# -----------------------------------------------------------------------------
+[scheduler]
+enabled = false
+
+# Example scheduled jobs:
+# [[scheduler.jobs]]
+# name = "morning-greeting"
+# schedule = "0 9 * * 1-5"       # 9 AM weekdays
+# channel = "general"
+# message = "Good morning! Ready to help with anything today."
+#
+# [[scheduler.jobs]]
+# name = "weekly-summary"
+# schedule = "0 17 * * 5"        # Friday 5 PM
+# channel = "general"
+# message = "Here's a summary of this week's activity."
+
+# -----------------------------------------------------------------------------
+# HTTP/WebSocket gateway (Web UI)
+# -----------------------------------------------------------------------------
+# When enabled, starts an embedded web server with a chat UI.
+# Auto-enabled when no Discord token is configured.
+# Access at http://<host>:<port> in your browser.
+#
+# Endpoints:
+#   GET  /              — Web UI (chat interface + setup screen)
+#   POST /api/chat      — Send a message (REST)
+#   GET  /ws            — WebSocket streaming
+#   GET  /api/status    — Provider configuration status
+#   POST /api/config    — Configure provider at runtime (API key, model, etc.)
+#   GET  /api/sessions  — List sessions
+[gateway]
+enabled = false
+host = "0.0.0.0"
+port = 8080
+# Optional API key for gateway authentication (Bearer token):
+# api_key = "${GATEWAY_API_KEY}"
+
+# -----------------------------------------------------------------------------
+# MCP servers (Model Context Protocol)
+# -----------------------------------------------------------------------------
+# Connect to external tool servers via MCP stdio transport.
+# Each server is spawned as a child process at startup.
+
+# Example: connect to a filesystem MCP server
+# [[mcp.servers]]
+# name = "filesystem"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
+
+# Example: connect to a custom Python MCP server
+# [[mcp.servers]]
+# name = "my-tools"
+# command = "python"
+# args = ["-m", "my_mcp_server"]
+# [mcp.servers.env]
+# MY_API_KEY = "${MY_API_KEY}"
+
+# -----------------------------------------------------------------------------
+# Metrics
+# -----------------------------------------------------------------------------
+[metrics]
+enabled = false
+# Log metrics to stderr periodically
+log_metrics = false
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+[logging]
+level = "info"

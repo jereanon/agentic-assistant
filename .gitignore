@@ -1,0 +1,20 @@
+# Build artifacts
+/target
+
+# Editor
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Secrets and runtime config
+.env
+.env.*
+assistant.toml
+
+# Session data (conversations, user IDs, etc.)
+data/
+
+# Claude Code
+.claude/

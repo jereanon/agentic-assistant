@@ -1,0 +1,3832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Assistant</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg-secondary: #f7f7f8;
+            --bg-tertiary: #ececf1;
+            --text: #1a1a2e;
+            --text-secondary: #6b6b80;
+            --border: #d9d9e3;
+            --accent: #5b5fc7;
+            --accent-hover: #4a4eb5;
+            --user-bg: #5b5fc7;
+            --user-text: #ffffff;
+            --assistant-bg: #f7f7f8;
+            --assistant-text: #1a1a2e;
+            --sidebar-width: 260px;
+            --danger: #d93025;
+        }
+
+        [data-theme="dark"] {
+            --bg: #1a1a2e;
+            --bg-secondary: #232340;
+            --bg-tertiary: #2d2d4a;
+            --text: #e8e8ed;
+            --text-secondary: #9898a8;
+            --border: #3d3d5c;
+            --accent: #7b7fda;
+            --accent-hover: #6b6fc8;
+            --user-bg: #5b5fc7;
+            --user-text: #ffffff;
+            --assistant-bg: #232340;
+            --assistant-text: #e8e8ed;
+            --danger: #f28b82;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-header h2 {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .new-chat-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .new-chat-btn:hover { background: var(--accent-hover); }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .session-item {
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2px;
+            transition: background 0.15s;
+        }
+
+        .session-item:hover { background: var(--bg-tertiary); }
+        .session-item.active { background: var(--bg-tertiary); font-weight: 600; }
+
+        .session-item .session-label {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .session-item .session-actions {
+            display: flex;
+            gap: 2px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .session-item .session-action-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0 3px;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .session-item:hover .session-action-btn { opacity: 1; }
+        .session-item .session-action-btn:hover { color: var(--accent); }
+        .session-item .session-action-btn.danger:hover { color: var(--danger); }
+
+        .session-rename-input {
+            background: var(--bg-primary);
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 13px;
+            padding: 2px 6px;
+            width: 100%;
+            outline: none;
+        }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 16px;
+            color: var(--text);
+        }
+
+        .sidebar-footer span {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Main chat area */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .chat-header {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        #chatTitle {
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        #chatTitle:hover {
+            border-color: var(--border);
+            background: var(--bg-secondary);
+        }
+
+        .chat-title-input {
+            font-size: 14px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--accent);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            outline: none;
+            min-width: 120px;
+        }
+
+        .working-dir-badge {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
+        .working-dir-badge:hover {
+            border-color: var(--border);
+            background: var(--bg-secondary);
+            color: var(--text);
+        }
+
+        .working-dir-badge.empty {
+            opacity: 0.5;
+        }
+
+        .working-dir-badge.empty:hover {
+            opacity: 0.8;
+        }
+
+        .dir-picker-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 15vh;
+        }
+
+        .dir-picker-overlay.hidden { display: none; }
+
+        .dir-picker-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            max-width: 520px;
+            width: 100%;
+            margin: 16px;
+        }
+
+        .dir-picker-card h3 {
+            margin-bottom: 12px;
+            font-size: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dir-picker-card h3 button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+
+        .dir-picker-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+        }
+
+        .dir-picker-input:focus {
+            border-color: var(--accent);
+        }
+
+        .dir-picker-suggestions {
+            max-height: 240px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            display: none;
+        }
+
+        .dir-picker-suggestions.visible {
+            display: block;
+        }
+
+        .dir-suggestion-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text);
+        }
+
+        .dir-suggestion-item:hover,
+        .dir-suggestion-item.active {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .dir-suggestion-icon {
+            opacity: 0.6;
+            flex-shrink: 0;
+        }
+
+        .dir-suggestion-item.active .dir-suggestion-icon,
+        .dir-suggestion-item:hover .dir-suggestion-icon {
+            opacity: 1;
+        }
+
+        .dir-picker-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .dir-picker-actions button {
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            transition: background 0.15s;
+        }
+
+        .dir-picker-actions button:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .dir-picker-actions button.primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .dir-picker-actions button.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .dir-picker-current {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        /* Chaos mode toggle */
+        .chaos-toggle {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .chaos-toggle:hover {
+            border-color: var(--border);
+            background: var(--bg-secondary);
+            color: var(--text);
+        }
+
+        .chaos-toggle input[type="checkbox"] {
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .chaos-toggle.active {
+            color: #e67e22;
+            border-color: #e67e22;
+            background: rgba(230, 126, 34, 0.08);
+        }
+
+        /* Tool approval card */
+        .approval-card {
+            max-width: 720px;
+            width: 100%;
+            margin: 0 auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 4px solid #e67e22;
+            border-radius: 8px;
+            padding: 14px 18px;
+            animation: slideIn 0.2s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .approval-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #e67e22;
+        }
+
+        .approval-header .approval-icon {
+            font-size: 16px;
+        }
+
+        .approval-tool-name {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: var(--bg-tertiary);
+            padding: 1px 6px;
+            border-radius: 4px;
+            color: var(--text);
+        }
+
+        .approval-args {
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            line-height: 1.5;
+            margin-bottom: 10px;
+            overflow-x: auto;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: var(--text);
+        }
+
+        .approval-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .approve-btn, .deny-btn {
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .approve-btn:active, .deny-btn:active {
+            transform: scale(0.97);
+        }
+
+        .approve-btn {
+            background: #34a853;
+            color: #fff;
+        }
+
+        .approve-btn:hover {
+            background: #2d9249;
+        }
+
+        .deny-btn {
+            background: var(--bg-tertiary);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .deny-btn:hover {
+            background: var(--danger);
+            color: #fff;
+            border-color: var(--danger);
+        }
+
+        .approval-decided {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .approval-decided.approved {
+            background: rgba(52, 168, 83, 0.12);
+            color: #34a853;
+        }
+
+        .approval-decided.denied {
+            background: rgba(217, 48, 37, 0.12);
+            color: var(--danger);
+        }
+
+        .connection-status {
+            font-size: 11px;
+            font-weight: 400;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status-dot.connected { background: #34a853; }
+        .status-dot.disconnected { background: #d93025; }
+        .status-dot.connecting { background: #fbbc05; }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 720px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            gap: 12px;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: var(--user-bg);
+            color: var(--user-text);
+        }
+
+        .message.assistant .message-avatar {
+            background: var(--bg-tertiary);
+            color: var(--accent);
+        }
+
+        .message-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .message-role {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-transform: capitalize;
+        }
+
+        .cron-msg-badge {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: none;
+            background: #e8f5e9;
+            color: #2e7d32;
+            letter-spacing: 0.3px;
+        }
+
+        [data-theme="dark"] .cron-msg-badge {
+            background: #1b5e20;
+            color: #a5d6a7;
+        }
+
+        .message-text {
+            font-size: 14px;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+
+        .message-text p { margin-bottom: 8px; }
+        .message-text p:last-child { margin-bottom: 0; }
+        .message-text code {
+            background: var(--bg-tertiary);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        .message-text pre {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+        .message-text pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .streaming-cursor::after {
+            content: '';
+            display: inline-block;
+            width: 7px;
+            height: 16px;
+            background: var(--accent);
+            margin-left: 2px;
+            animation: blink 1s steps(2) infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Typing indicator */
+        .typing-indicator {
+            max-width: 720px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            gap: 12px;
+        }
+
+        .typing-dots {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 0;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            animation: typing-bounce 1.4s ease-in-out infinite;
+        }
+
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
+        /* Input area */
+        .input-area {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            background: var(--bg);
+        }
+
+        .input-container {
+            max-width: 720px;
+            margin: 0 auto;
+            display: flex;
+            gap: 8px;
+            position: relative;
+        }
+
+        .input-container textarea {
+            flex: 1;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-family: inherit;
+            background: var(--bg);
+            color: var(--text);
+            resize: none;
+            min-height: 44px;
+            max-height: 200px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-container textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .send-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0 16px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+            align-self: flex-end;
+            height: 44px;
+        }
+
+        .send-btn:hover { background: var(--accent-hover); }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .model-select {
+            align-self: flex-end;
+            height: 44px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0 8px;
+            font-size: 12px;
+            font-family: inherit;
+            background: var(--bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            outline: none;
+            min-width: 130px;
+            transition: border-color 0.2s;
+        }
+
+        .model-select:focus { border-color: var(--accent); }
+
+        /* @mention autocomplete */
+        .mention-autocomplete {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 4px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            overflow: hidden;
+            z-index: 100;
+            min-width: 160px;
+            display: none;
+        }
+
+        .mention-autocomplete.visible { display: block; }
+
+        .mention-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text);
+            transition: background 0.1s;
+        }
+
+        .mention-item:hover,
+        .mention-item.active {
+            background: var(--bg-tertiary);
+        }
+
+        .mention-item-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .mention-item-name {
+            font-weight: 500;
+        }
+
+        .mention-item-hint {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: auto;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        /* Setup screen */
+        .setup-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .setup-overlay.hidden { display: none; }
+
+        .setup-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 440px;
+            width: 100%;
+            margin: 16px;
+        }
+
+        .setup-card h1 {
+            font-size: 22px;
+            margin-bottom: 4px;
+        }
+
+        .setup-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .setup-field {
+            margin-bottom: 14px;
+        }
+
+        .setup-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .setup-field input,
+        .setup-field select {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .setup-field input:focus,
+        .setup-field select:focus {
+            border-color: var(--accent);
+        }
+
+        .setup-btn {
+            width: 100%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 6px;
+        }
+
+        .setup-btn:hover { background: var(--accent-hover); }
+        .setup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .setup-error {
+            color: var(--danger);
+            font-size: 13px;
+            margin-top: 8px;
+            display: none;
+        }
+
+        /* Settings modal */
+        .settings-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .settings-overlay.hidden { display: none; }
+
+        .settings-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            max-width: 480px;
+            width: 100%;
+            margin: 16px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .settings-card h2 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .settings-close {
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 0 4px;
+        }
+
+        .settings-close:hover { color: var(--text); }
+
+        .settings-section {
+            margin-bottom: 24px;
+        }
+
+        .settings-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .settings-field {
+            margin-bottom: 12px;
+        }
+
+        .settings-field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .settings-field input,
+        .settings-field select {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .settings-field input:focus,
+        .settings-field select:focus {
+            border-color: var(--accent);
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .settings-row .settings-field { flex: 1; }
+
+        .settings-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 9px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .settings-btn:hover { background: var(--accent-hover); }
+        .settings-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .settings-btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 9px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .settings-btn-secondary:hover { background: var(--border); }
+
+        .auth-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .auth-badge.cli { background: #e8f5e9; color: #2e7d32; }
+        .auth-badge.env { background: #e3f2fd; color: #1565c0; }
+        .auth-badge.config { background: #f3e5f5; color: #7b1fa2; }
+        .auth-badge.web_ui { background: #fff3e0; color: #e65100; }
+        .auth-badge.none { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+        [data-theme="dark"] .auth-badge.cli { background: #1b5e20; color: #a5d6a7; }
+        [data-theme="dark"] .auth-badge.env { background: #0d47a1; color: #90caf9; }
+        [data-theme="dark"] .auth-badge.config { background: #4a148c; color: #ce93d8; }
+        [data-theme="dark"] .auth-badge.web_ui { background: #bf360c; color: #ffab91; }
+
+        .settings-status {
+            font-size: 12px;
+            margin-top: 6px;
+            color: var(--text-secondary);
+        }
+
+        .settings-status.success { color: #34a853; }
+        .settings-status.error { color: var(--danger); }
+
+        .restart-notice {
+            background: #fff8e1;
+            color: #f57f17;
+            border: 1px solid #ffecb3;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            margin-top: 8px;
+            display: none;
+        }
+
+        [data-theme="dark"] .restart-notice {
+            background: #3e2723;
+            color: #ffcc02;
+            border-color: #5d4037;
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .gear-btn {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 16px;
+            color: var(--text);
+            transition: color 0.2s;
+        }
+
+        .gear-btn:hover { color: var(--accent); }
+
+        /* Cron jobs UI */
+        .cron-list {
+            margin-bottom: 12px;
+        }
+
+        .cron-empty {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-style: italic;
+            padding: 12px 0;
+        }
+
+        .cron-job {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: var(--bg);
+        }
+
+        .cron-job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .cron-job-name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .cron-job-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .cron-job-actions button {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .cron-job-actions button:hover {
+            color: var(--text);
+            border-color: var(--text-secondary);
+        }
+
+        .cron-job-actions button.danger:hover {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .cron-job-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .cron-status-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .cron-status-badge.active { background: #e8f5e9; color: #2e7d32; }
+        .cron-status-badge.paused { background: #fff3e0; color: #e65100; }
+        .cron-status-badge.completed { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+        [data-theme="dark"] .cron-status-badge.active { background: #1b5e20; color: #a5d6a7; }
+        [data-theme="dark"] .cron-status-badge.paused { background: #bf360c; color: #ffab91; }
+
+        .cron-create-form {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            background: var(--bg);
+            display: none;
+        }
+
+        .cron-create-form.visible {
+            display: block;
+        }
+
+        .cron-create-form h4 {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .cron-form-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .cron-edit-form {
+            background: var(--bg-secondary);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 8px;
+        }
+
+        .cron-edit-form h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+        }
+
+        .cron-form-row .settings-field {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        /* Settings tabs */
+        .settings-tabs {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 16px;
+            gap: 0;
+        }
+
+        .settings-tab {
+            padding: 10px 16px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            transition: color 0.15s, border-color 0.15s;
+            white-space: nowrap;
+        }
+
+        .settings-tab:hover { color: var(--text); }
+        .settings-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+
+        .settings-section[data-tab] { display: none; }
+        .settings-section[data-tab].tab-active { display: block; }
+
+        /* Hamburger menu */
+        .hamburger-btn {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            color: var(--text);
+            padding: 4px 8px;
+            margin-right: 8px;
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 99;
+        }
+
+        .sidebar-overlay.visible { display: block; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: -100%;
+                top: 0;
+                bottom: 0;
+                z-index: 100;
+                transition: left 0.25s ease;
+                width: var(--sidebar-width);
+            }
+
+            .sidebar.open { left: 0; }
+
+            .hamburger-btn { display: block; }
+
+            .input-container {
+                flex-wrap: wrap;
+            }
+
+            .input-container textarea { min-width: 0; }
+
+            .model-select,
+            .agent-select {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .send-btn {
+                width: 100%;
+                flex-shrink: 0;
+            }
+
+            .messages { padding: 12px; }
+            .message { max-width: 95%; }
+
+            /* Full-screen settings on mobile */
+            .settings-card {
+                width: 100% !important;
+                height: 100vh !important;
+                max-height: 100vh !important;
+                border-radius: 0 !important;
+                margin: 0 !important;
+            }
+
+            .settings-tabs {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+
+            .settings-tabs::-webkit-scrollbar { display: none; }
+
+            /* Touch-friendly targets */
+            .settings-tab { padding: 12px 16px; min-height: 44px; }
+            .session-item { padding: 12px; min-height: 44px; }
+            .gear-btn, .theme-toggle { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+
+            /* Prevent iOS zoom on input focus */
+            .input-container textarea { font-size: 16px; }
+
+            .chat-header { padding: 12px 12px; }
+            .input-area { padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Setup overlay (shown when provider is not configured) -->
+    <div class="setup-overlay hidden" id="setupOverlay">
+        <div class="setup-card">
+            <h1>Welcome to Agentic Assistant</h1>
+            <p>To get started, configure your LLM provider. You can use a Claude or OpenAI API key.</p>
+
+            <div class="setup-field">
+                <label for="setupApiKey">API Key</label>
+                <input type="password" id="setupApiKey" placeholder="sk-... or your Anthropic key">
+            </div>
+
+            <div class="setup-field">
+                <label for="setupProviderType">Provider</label>
+                <select id="setupProviderType">
+                    <option value="claude">Claude (Anthropic)</option>
+                    <option value="openai">OpenAI</option>
+                </select>
+            </div>
+
+            <div class="setup-field">
+                <label for="setupModel">Model</label>
+                <input type="text" id="setupModel" placeholder="claude-opus-4-6">
+            </div>
+
+            <div class="setup-field" id="setupApiUrlField" style="display:none">
+                <label for="setupApiUrl">API URL (optional, for compatible endpoints)</label>
+                <input type="text" id="setupApiUrl" placeholder="https://api.openai.com/v1">
+            </div>
+
+            <button class="setup-btn" id="setupBtn" onclick="submitSetup()">Configure &amp; Start</button>
+            <div class="setup-error" id="setupError"></div>
+        </div>
+    </div>
+
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+    <!-- Settings modal -->
+    <div class="settings-overlay hidden" id="settingsOverlay" onclick="if(event.target===this)closeSettings()">
+        <div class="settings-card">
+            <h2>
+                Settings
+                <button class="settings-close" onclick="closeSettings()">&times;</button>
+            </h2>
+
+            <div class="settings-tabs">
+                <button class="settings-tab active" onclick="switchSettingsTab('general',this)">General</button>
+                <button class="settings-tab" onclick="switchSettingsTab('agents',this)">Agents</button>
+                <button class="settings-tab" onclick="switchSettingsTab('discord',this)">Discord</button>
+                <button class="settings-tab" onclick="switchSettingsTab('scheduled',this)">Tasks</button>
+                <button class="settings-tab" onclick="switchSettingsTab('federation',this)">Federation</button>
+            </div>
+
+            <!-- General / Provider section -->
+            <div class="settings-section tab-active" data-tab="general">
+                <div class="settings-field">
+                    <label for="settingsUserName">Your Display Name</label>
+                    <input type="text" id="settingsUserName" placeholder="User"
+                        oninput="userDisplayName=this.value.trim(); localStorage.setItem('agentic_user_name', userDisplayName)">
+                </div>
+                <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+                <div style="margin-bottom:12px">
+                    <span style="font-size:12px;color:var(--text-secondary)">Auth source:</span>
+                    <span class="auth-badge none" id="settingsAuthBadge">none</span>
+                </div>
+                <div class="settings-field">
+                    <label for="settingsProviderType">Provider Type</label>
+                    <select id="settingsProviderType">
+                        <option value="claude">Claude (Anthropic)</option>
+                        <option value="openai">OpenAI</option>
+                    </select>
+                </div>
+                <div class="settings-field">
+                    <label for="settingsModel">Model</label>
+                    <input type="text" id="settingsModel" placeholder="claude-opus-4-6">
+                </div>
+                <div class="settings-field">
+                    <label for="settingsApiKey">API Key (leave blank to keep current)</label>
+                    <input type="password" id="settingsApiKey" placeholder="sk-...">
+                </div>
+                <div class="settings-field" id="settingsApiUrlField" style="display:none">
+                    <label for="settingsApiUrl">API URL</label>
+                    <input type="text" id="settingsApiUrl" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" onclick="saveProviderSettings()">Save Provider</button>
+                    <button class="settings-btn-secondary" onclick="detectProvider()">Re-detect from CLI</button>
+                </div>
+                <div class="settings-status" id="providerStatus"></div>
+            </div>
+
+            <!-- Agents section -->
+            <div class="settings-section" data-tab="agents">
+                <div id="agentList"></div>
+                <div class="settings-actions" style="margin-top:12px">
+                    <button class="settings-btn-secondary" onclick="showAddAgentForm()">+ New Agent</button>
+                </div>
+                <div id="agentFormContainer" style="display:none;margin-top:12px">
+                    <div class="cron-edit-form">
+                        <h4 id="agentFormTitle">Add Agent</h4>
+                        <div class="settings-field">
+                            <label for="agentFormName">Name</label>
+                            <input type="text" id="agentFormName" placeholder="e.g. CodeBot">
+                        </div>
+                        <div class="settings-field">
+                            <label for="agentFormPersonality">Personality</label>
+                            <textarea id="agentFormPersonality" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;resize:vertical;min-height:60px" placeholder="e.g. a precise coding assistant"></textarea>
+                        </div>
+                        <div class="settings-field">
+                            <label for="agentFormPrompt">System Prompt <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(leave blank to auto-generate)</span></label>
+                            <textarea id="agentFormPrompt" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;resize:vertical;min-height:80px" placeholder="Optional custom system prompt..."></textarea>
+                        </div>
+                        <div class="settings-field">
+                            <label for="agentFormModel">Model</label>
+                            <select id="agentFormModel"></select>
+                        </div>
+                        <div class="settings-actions">
+                            <button class="settings-btn" id="agentFormSaveBtn" onclick="saveAgent()">Save</button>
+                            <button class="settings-btn-secondary" onclick="hideAgentForm()">Cancel</button>
+                        </div>
+                        <div class="settings-status" id="agentFormStatus"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Discord section -->
+            <div class="settings-section" data-tab="discord">
+                <h3>Discord <span class="auth-badge" id="discordConnBadge" style="margin-left:8px">Disconnected</span></h3>
+                <div class="settings-field">
+                    <label for="settingsDiscordToken">Bot Token <span id="discordTokenHint" style="font-weight:normal;color:var(--text-secondary);font-size:12px"></span></label>
+                    <input type="password" id="settingsDiscordToken" placeholder="Enter new Discord bot token">
+                </div>
+                <div class="settings-field">
+                    <label for="settingsDiscordFilter">Message Filter</label>
+                    <select id="settingsDiscordFilter" onchange="toggleAllowedUsers()">
+                        <option value="mentions">Mentions Only</option>
+                        <option value="all">All Messages</option>
+                        <option value="dm">DMs from Allowed Users</option>
+                    </select>
+                </div>
+                <div class="settings-field" id="allowedUsersField" style="display:none">
+                    <label for="settingsAllowedUsers">Allowed Usernames <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(comma-separated)</span></label>
+                    <input type="text" id="settingsAllowedUsers" placeholder="e.g. alice, bob">
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" onclick="saveDiscordSettings()">Save &amp; Connect</button>
+                </div>
+                <div class="settings-status" id="discordStatus"></div>
+            </div>
+
+            <!-- Scheduled Tasks section -->
+            <div class="settings-section" data-tab="scheduled">
+                <h3>Scheduled Tasks</h3>
+                <div class="cron-list" id="cronJobList">
+                    <div class="cron-empty" id="cronEmpty">No scheduled tasks.</div>
+                </div>
+                <div class="settings-actions" style="margin-bottom:12px">
+                    <button class="settings-btn-secondary" onclick="toggleCronForm()">+ New Task</button>
+                    <button class="settings-btn-secondary" onclick="loadCronJobs()">Refresh</button>
+                </div>
+                <div class="cron-create-form" id="cronCreateForm">
+                    <h4>Create Scheduled Task</h4>
+                    <div class="settings-field">
+                        <label for="cronName">Name</label>
+                        <input type="text" id="cronName" placeholder="e.g. Weather check">
+                    </div>
+                    <div class="cron-form-row">
+                        <div class="settings-field">
+                            <label for="cronScheduleType">Schedule Type</label>
+                            <select id="cronScheduleType" onchange="updateCronScheduleUI()">
+                                <option value="every">Repeating interval</option>
+                                <option value="cron">Cron expression</option>
+                                <option value="at">One-time (at)</option>
+                            </select>
+                        </div>
+                        <div class="settings-field">
+                            <label for="cronScheduleValue" id="cronScheduleLabel">Interval (minutes)</label>
+                            <input type="text" id="cronScheduleValue" placeholder="60">
+                        </div>
+                    </div>
+                    <div class="cron-form-row">
+                        <div class="settings-field">
+                            <label for="cronPayloadType">Payload Type</label>
+                            <select id="cronPayloadType">
+                                <option value="agent_turn">Agent Turn (AI processes a prompt)</option>
+                                <option value="system_event">System Event (simple message)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <label for="cronPayloadValue">Prompt / Message</label>
+                        <input type="text" id="cronPayloadValue" placeholder="e.g. Check the weather forecast">
+                    </div>
+                    <div class="settings-field">
+                        <label for="cronModel">Model</label>
+                        <select id="cronModel"></select>
+                    </div>
+                    <div class="settings-field">
+                        <label for="cronNamespace">Channel</label>
+                        <select id="cronNamespace">
+                            <option value="web">Default (web)</option>
+                        </select>
+                    </div>
+                    <div class="settings-actions">
+                        <button class="settings-btn" onclick="createCronJob()">Create</button>
+                        <button class="settings-btn-secondary" onclick="toggleCronForm()">Cancel</button>
+                    </div>
+                    <div class="settings-status" id="cronCreateStatus"></div>
+                </div>
+            </div>
+
+            <!-- Federation section -->
+            <div class="settings-section" data-tab="federation">
+                <h3>Federation</h3>
+                <div style="color:var(--text-secondary);margin-bottom:16px;line-height:1.5">
+                    <p><strong>Coming soon</strong> &mdash; Federation allows connecting multiple
+                    agentic-assistant instances together so agents can collaborate across servers.</p>
+                    <p style="margin-top:12px">With federation, you'll be able to:</p>
+                    <ul style="margin:8px 0 0 20px;list-style:disc">
+                        <li>Discover agents on remote instances</li>
+                        <li>Delegate tasks to agents on other servers</li>
+                        <li>Share capabilities across your deployment</li>
+                    </ul>
+                </div>
+                <div class="settings-field">
+                    <label for="fedPeerUrl">Peer URL</label>
+                    <input type="text" id="fedPeerUrl" placeholder="https://other-instance:8080" disabled>
+                </div>
+                <div class="settings-field">
+                    <label for="fedApiKey">Peer API Key</label>
+                    <input type="password" id="fedApiKey" placeholder="Shared secret or API key" disabled>
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" disabled title="Not yet implemented">Add Peer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>Sessions</h2>
+            <button class="new-chat-btn" onclick="newChat()">+ New</button>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+        <div class="sidebar-footer">
+            <span>Agentic Assistant</span>
+            <div style="display:flex;gap:6px">
+                <button class="gear-btn" onclick="openSettings()" title="Settings">&#9881;</button>
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                    <span id="themeIcon">&#9790;</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Directory picker modal -->
+    <div class="dir-picker-overlay hidden" id="dirPickerOverlay" onclick="if(event.target===this)closeDirPicker()">
+        <div class="dir-picker-card">
+            <h3>
+                Set Working Directory
+                <button onclick="closeDirPicker()">&times;</button>
+            </h3>
+            <div class="dir-picker-current" id="dirPickerCurrent"></div>
+            <input type="text" class="dir-picker-input" id="dirPickerInput"
+                   placeholder="/path/to/project or ~/projects/..."
+                   oninput="onDirPickerInput()"
+                   onkeydown="onDirPickerKeydown(event)"
+                   autocomplete="off" spellcheck="false">
+            <div class="dir-picker-suggestions" id="dirPickerSuggestions"></div>
+            <div class="dir-picker-actions">
+                <button onclick="clearDirPicker()">Clear</button>
+                <button onclick="closeDirPicker()">Cancel</button>
+                <button class="primary" onclick="confirmDirPicker()">Set Directory</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="chat-header">
+            <button class="hamburger-btn" onclick="toggleSidebar()" title="Menu">&#9776;</button>
+            <span id="chatTitle" onclick="startHeaderRename()">New Chat</span>
+            <span class="working-dir-badge empty" id="workingDirBadge" onclick="editWorkingDirectory()" title="Set working directory">&#128193; Set directory</span>
+            <label class="chaos-toggle" id="chaosToggle" title="Chaos mode: skip tool approval">
+                <input type="checkbox" id="chaosModeCheckbox" onchange="toggleChaosMode(this.checked)">
+                <span>&#9889; Chaos</span>
+            </label>
+            <div class="connection-status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </div>
+        <div class="messages" id="messages">
+            <div class="empty-state" id="emptyState">
+                Send a message to start a conversation
+            </div>
+        </div>
+        <div class="input-area">
+            <div class="input-container">
+                <div class="mention-autocomplete" id="mentionAutocomplete"></div>
+                <textarea
+                    id="messageInput"
+                    placeholder="Type a message..."
+                    rows="1"
+                    onkeydown="handleKeyDown(event)"
+                    oninput="autoResize(this); handleMentionInput(this)"
+                ></textarea>
+                <select class="model-select agent-select" id="agentSelect" style="display:none;min-width:110px">
+                    <option value="">Default agent</option>
+                </select>
+                <select class="model-select" id="modelSelect">
+                    <option value="">Default model</option>
+                </select>
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---------------------------------------------------------------------------
+        // State
+        // ---------------------------------------------------------------------------
+
+        let ws = null;
+        let currentNamespace = null;
+        let isStreaming = false;
+        let streamingElement = null;
+        let streamingText = '';
+        let currentAgentName = 'Assistant';
+        let cachedAgentNames = [];
+        let mentionActiveIndex = -1;
+        let cachedSessions = [];
+        const apiKey = localStorage.getItem('agentic_api_key') || '';
+        let userDisplayName = localStorage.getItem('agentic_user_name') || '';
+
+        // ---------------------------------------------------------------------------
+        // WebSocket
+        // ---------------------------------------------------------------------------
+
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            let url = `${protocol}//${location.host}/ws`;
+            if (apiKey) {
+                // Send API key as query param for WS (since headers aren't supported)
+                url += `?token=${encodeURIComponent(apiKey)}`;
+            }
+
+            setStatus('connecting');
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                setStatus('connected');
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleWsMessage(msg);
+            };
+
+            ws.onclose = () => {
+                setStatus('disconnected');
+                // Reconnect after a delay
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = () => {
+                setStatus('disconnected');
+            };
+        }
+
+        function handleWsMessage(msg) {
+            switch (msg.type) {
+                case 'text_delta':
+                    removeTypingIndicator();
+                    if (!streamingElement) {
+                        streamingElement = addMessage(getActiveAgentName(), '');
+                        streamingText = '';
+                    }
+                    streamingText += msg.content;
+                    const textEl = streamingElement.querySelector('.message-text');
+                    textEl.innerHTML = marked.parse(streamingText);
+                    textEl.classList.add('streaming-cursor');
+                    scrollToBottom();
+                    break;
+
+                case 'response':
+                    removeTypingIndicator();
+                    const agentName = msg.agent || getActiveAgentName();
+                    if (streamingElement) {
+                        // Update the role label and avatar to match the actual agent
+                        const roleEl = streamingElement.querySelector('.message-role');
+                        const avatarEl = streamingElement.querySelector('.message-avatar');
+                        if (roleEl) roleEl.textContent = agentName;
+                        if (avatarEl) avatarEl.textContent = agentName.charAt(0).toUpperCase();
+                        const el = streamingElement.querySelector('.message-text');
+                        el.innerHTML = marked.parse(msg.message);
+                        el.classList.remove('streaming-cursor');
+                        streamingElement = null;
+                        streamingText = '';
+                    } else {
+                        addMessage(agentName, msg.message);
+                    }
+                    if (msg.namespace) {
+                        currentNamespace = msg.namespace;
+                    }
+                    isStreaming = false;
+                    document.getElementById('sendBtn').disabled = false;
+                    document.getElementById('messageInput').focus();
+                    loadSessions();
+                    scrollToBottom();
+                    break;
+
+                case 'error':
+                    removeTypingIndicator();
+                    if (streamingElement) {
+                        const el = streamingElement.querySelector('.message-text');
+                        el.classList.remove('streaming-cursor');
+                        streamingElement = null;
+                        streamingText = '';
+                    }
+                    addMessage(getActiveAgentName(), `Error: ${msg.error}`);
+                    isStreaming = false;
+                    document.getElementById('sendBtn').disabled = false;
+                    break;
+
+                case 'session_updated':
+                    // A background process (e.g. cron job) updated a session.
+                    // If we're viewing that session, reload it to show new messages.
+                    if (msg.namespace && msg.namespace === currentNamespace && !isStreaming) {
+                        loadSession(msg.namespace);
+                    }
+                    // Also refresh the sidebar session list
+                    loadSessions();
+                    break;
+
+                case 'tool_approval_request':
+                    removeTypingIndicator();
+                    showApprovalCard(msg.call_id, msg.tool_name, msg.arguments);
+                    break;
+
+                case 'pong':
+                    break;
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Messaging
+        // ---------------------------------------------------------------------------
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text || isStreaming) return;
+
+            // Hide empty state
+            const empty = document.getElementById('emptyState');
+            if (empty) empty.style.display = 'none';
+
+            addMessage('user', text);
+            input.value = '';
+            autoResize(input);
+
+            isStreaming = true;
+            document.getElementById('sendBtn').disabled = true;
+            showTypingIndicator();
+
+            const selectedModel = document.getElementById('modelSelect').value || null;
+            const selectedAgent = document.getElementById('agentSelect')?.value || null;
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg = {
+                    type: 'chat',
+                    message: text,
+                    namespace: currentNamespace,
+                };
+                if (selectedModel) msg.model = selectedModel;
+                if (selectedAgent) msg.agent = selectedAgent;
+                ws.send(JSON.stringify(msg));
+            } else {
+                // Fallback to REST API
+                fetchChat(text);
+            }
+
+            scrollToBottom();
+        }
+
+        async function fetchChat(text) {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        message: text,
+                        namespace: currentNamespace,
+                    }),
+                });
+
+                const data = await resp.json();
+                removeTypingIndicator();
+                if (resp.ok) {
+                    addMessage(data.agent || getActiveAgentName(), data.message);
+                    currentNamespace = data.namespace;
+                    loadSessions();
+                } else {
+                    addMessage(getActiveAgentName(), `Error: ${data.error}`);
+                }
+            } catch (e) {
+                removeTypingIndicator();
+                addMessage(getActiveAgentName(), `Connection error: ${e.message}`);
+            }
+
+            isStreaming = false;
+            document.getElementById('sendBtn').disabled = false;
+        }
+
+        // ---------------------------------------------------------------------------
+        // UI helpers
+        // ---------------------------------------------------------------------------
+
+        function getActiveAgentName() {
+            const select = document.getElementById('agentSelect');
+            if (select && select.value) return select.value;
+            return currentAgentName;
+        }
+
+        function addMessage(role, content, scheduledLabel) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            const isAssistant = role !== 'user';
+            div.className = `message ${isAssistant ? 'assistant' : 'user'}`;
+
+            const displayName = isAssistant ? role : (userDisplayName || 'You');
+            const avatar = isAssistant
+                ? displayName.charAt(0).toUpperCase()
+                : (userDisplayName ? userDisplayName.charAt(0).toUpperCase() : 'U');
+            const parsed = content ? marked.parse(content) : '';
+            const roleLabel = scheduledLabel
+                ? `<span class="cron-msg-badge">${escapeHtml(scheduledLabel)}</span>`
+                : escapeHtml(displayName);
+
+            div.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                    <div class="message-role">${roleLabel}</div>
+                    <div class="message-text">${parsed}</div>
+                </div>
+            `;
+
+            container.appendChild(div);
+            scrollToBottom();
+            return div;
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messages');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            removeTypingIndicator();
+            const agentName = getActiveAgentName();
+            const avatar = agentName.charAt(0).toUpperCase();
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'typing-indicator';
+            div.id = 'typingIndicator';
+            div.innerHTML = `
+                <div class="message-avatar" style="background:var(--bg-tertiary);color:var(--accent)">${avatar}</div>
+                <div class="message-content">
+                    <div class="message-role">${escapeHtml(agentName)}</div>
+                    <div class="typing-dots"><span></span><span></span><span></span></div>
+                </div>
+            `;
+            container.appendChild(div);
+            scrollToBottom();
+        }
+
+        function removeTypingIndicator() {
+            const el = document.getElementById('typingIndicator');
+            if (el) el.remove();
+        }
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+        }
+
+        function handleKeyDown(e) {
+            const ac = document.getElementById('mentionAutocomplete');
+            const isVisible = ac && ac.classList.contains('visible');
+
+            if (isVisible) {
+                const items = ac.querySelectorAll('.mention-item');
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    mentionActiveIndex = Math.min(mentionActiveIndex + 1, items.length - 1);
+                    updateMentionActive(items);
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    mentionActiveIndex = Math.max(mentionActiveIndex - 1, 0);
+                    updateMentionActive(items);
+                    return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    if (mentionActiveIndex >= 0 && mentionActiveIndex < items.length) {
+                        selectMention(items[mentionActiveIndex].dataset.name);
+                    }
+                    return;
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    hideMentionAutocomplete();
+                    return;
+                }
+            }
+
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // @mention autocomplete
+        // ---------------------------------------------------------------------------
+
+        function handleMentionInput(el) {
+            const text = el.value;
+            const cursor = el.selectionStart;
+
+            // Find the @ that starts the current mention (searching backward from cursor)
+            let atPos = -1;
+            for (let i = cursor - 1; i >= 0; i--) {
+                if (text[i] === '@') {
+                    atPos = i;
+                    break;
+                }
+                // Stop if we hit whitespace before finding @, unless it's part of a mention
+                if (text[i] === ' ' || text[i] === '\n') break;
+            }
+
+            if (atPos === -1) {
+                hideMentionAutocomplete();
+                return;
+            }
+
+            // The partial name after @
+            const partial = text.substring(atPos + 1, cursor).toLowerCase();
+
+            // Filter agent names
+            const matches = cachedAgentNames.filter(name =>
+                name.toLowerCase().startsWith(partial)
+            );
+
+            if (matches.length === 0) {
+                hideMentionAutocomplete();
+                return;
+            }
+
+            showMentionAutocomplete(matches, atPos);
+        }
+
+        function showMentionAutocomplete(names, atPos) {
+            const ac = document.getElementById('mentionAutocomplete');
+            mentionActiveIndex = 0;
+
+            ac.innerHTML = names.map((name, i) => `
+                <div class="mention-item ${i === 0 ? 'active' : ''}"
+                     data-name="${escapeHtml(name)}"
+                     onmousedown="event.preventDefault(); selectMention('${escapeHtml(name)}')"
+                     onmouseenter="mentionActiveIndex=${i}; updateMentionActive(document.querySelectorAll('.mention-item'))">
+                    <div class="mention-item-avatar">${name.charAt(0).toUpperCase()}</div>
+                    <span class="mention-item-name">${escapeHtml(name)}</span>
+                </div>
+            `).join('');
+
+            ac.classList.add('visible');
+        }
+
+        function hideMentionAutocomplete() {
+            const ac = document.getElementById('mentionAutocomplete');
+            ac.classList.remove('visible');
+            mentionActiveIndex = -1;
+        }
+
+        function updateMentionActive(items) {
+            items.forEach((item, i) => {
+                item.classList.toggle('active', i === mentionActiveIndex);
+            });
+        }
+
+        function selectMention(name) {
+            const el = document.getElementById('messageInput');
+            const text = el.value;
+            const cursor = el.selectionStart;
+
+            // Find the @ position
+            let atPos = -1;
+            for (let i = cursor - 1; i >= 0; i--) {
+                if (text[i] === '@') { atPos = i; break; }
+                if (text[i] === ' ' || text[i] === '\n') break;
+            }
+
+            if (atPos === -1) {
+                hideMentionAutocomplete();
+                return;
+            }
+
+            // Replace @partial with @Name followed by a space
+            const before = text.substring(0, atPos);
+            const after = text.substring(cursor);
+            const insertion = `@${name} `;
+            el.value = before + insertion + after;
+
+            // Move cursor to after the inserted mention
+            const newPos = atPos + insertion.length;
+            el.setSelectionRange(newPos, newPos);
+            el.focus();
+
+            hideMentionAutocomplete();
+            autoResize(el);
+        }
+
+        function setStatus(status) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            dot.className = `status-dot ${status}`;
+            text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        }
+
+        // ---------------------------------------------------------------------------
+        // Sessions
+        // ---------------------------------------------------------------------------
+
+        async function loadSessions() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/sessions', { headers });
+                if (!resp.ok) return;
+                const sessions = await resp.json();
+                cachedSessions = sessions;
+                renderSessions(sessions);
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function renderSessions(sessions) {
+            const list = document.getElementById('sessionList');
+            list.innerHTML = '';
+
+            sessions.forEach(s => {
+                const div = document.createElement('div');
+                div.className = `session-item${s.namespace === currentNamespace ? ' active' : ''}`;
+
+                const label = s.name || s.namespace.replace('web:', '').substring(0, 8) + '...';
+                const safeNs = escapeHtml(s.namespace);
+
+                div.innerHTML = `
+                    <span class="session-label" onclick="loadSession('${safeNs}')" ondblclick="event.stopPropagation(); startRename('${safeNs}', this)" title="${escapeHtml(s.name || s.namespace)}">${escapeHtml(label)}</span>
+                    <span class="session-actions">
+                        <button class="session-action-btn" onclick="event.stopPropagation(); startRename('${safeNs}')" title="Rename">&#9998;</button>
+                        <button class="session-action-btn danger" onclick="event.stopPropagation(); deleteSession('${safeNs}')" title="Delete">&times;</button>
+                    </span>
+                `;
+
+                list.appendChild(div);
+            });
+        }
+
+        async function loadSession(namespace) {
+            // Close sidebar on mobile
+            closeSidebar();
+
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch(`/api/sessions/${encodeURIComponent(namespace)}`, { headers });
+                if (!resp.ok) return;
+
+                const data = await resp.json();
+                currentNamespace = namespace;
+
+                // Clear and re-render messages
+                const container = document.getElementById('messages');
+                container.innerHTML = '';
+
+                const empty = document.getElementById('emptyState');
+                if (empty) empty.style.display = 'none';
+
+                let skipNext = false;
+                data.messages.forEach((m, i) => {
+                    if (m.role === 'system') return;
+                    // Hide cron-injected user prompts; show the next assistant
+                    // response as a scheduled message instead.
+                    if (m.role === 'user' && m.content.startsWith('[cron:')) {
+                        skipNext = true;
+                        return;
+                    }
+                    // Map 'assistant' role to the agent name for display
+                    const displayRole = m.role === 'assistant' ? currentAgentName : m.role;
+                    if (skipNext && m.role === 'assistant') {
+                        skipNext = false;
+                        // Extract task name from the preceding cron prompt
+                        const prev = data.messages[i - 1];
+                        const match = prev?.content?.match(/^\[cron:([^\]]+)\]/);
+                        const taskName = match ? match[1] : 'Scheduled';
+                        addMessage(displayRole, m.content, taskName);
+                        return;
+                    }
+                    skipNext = false;
+                    addMessage(displayRole, m.content);
+                });
+
+                // Find session name and working directory from sidebar data
+                const cachedSession = cachedSessions.find(s => s.namespace === namespace);
+                const sessionName = cachedSession?.name;
+                document.getElementById('chatTitle').textContent =
+                    sessionName || namespace.replace('web:', '').substring(0, 12) + '...';
+
+                updateWorkingDirBadge(cachedSession?.working_directory || null);
+                updateChaosToggle(cachedSession?.chaos_mode || false);
+
+                loadSessions();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function deleteSession(namespace) {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                await fetch(`/api/sessions/${encodeURIComponent(namespace)}`, {
+                    method: 'DELETE',
+                    headers,
+                });
+
+                if (namespace === currentNamespace) {
+                    newChat();
+                }
+                loadSessions();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function startRename(namespace) {
+            const items = document.querySelectorAll('.session-item');
+            for (const item of items) {
+                const label = item.querySelector('.session-label');
+                if (!label) continue;
+                if (label.getAttribute('onclick')?.includes(namespace)) {
+                    const current = cachedSessions.find(s => s.namespace === namespace);
+                    const currentName = current?.name || '';
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'session-rename-input';
+                    input.value = currentName;
+                    input.placeholder = 'Session name...';
+
+                    const actions = item.querySelector('.session-actions');
+                    if (actions) actions.style.display = 'none';
+                    label.replaceWith(input);
+                    input.focus();
+                    input.select();
+
+                    const finish = async () => {
+                        input.removeEventListener('blur', finish);
+                        input.removeEventListener('keydown', onKey);
+                        await renameSession(namespace, input.value);
+                    };
+
+                    const onKey = (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            input.blur();
+                        } else if (e.key === 'Escape') {
+                            input.removeEventListener('blur', finish);
+                            input.removeEventListener('keydown', onKey);
+                            loadSessions();
+                        }
+                    };
+
+                    input.addEventListener('blur', finish);
+                    input.addEventListener('keydown', onKey);
+                    break;
+                }
+            }
+        }
+
+        async function renameSession(namespace, name) {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                await fetch(`/api/sessions/${encodeURIComponent(namespace)}/name`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ name: name.trim() }),
+                });
+
+                // Update chat title if this is the active session
+                if (namespace === currentNamespace) {
+                    const titleEl = document.getElementById('chatTitle');
+                    if (titleEl) {
+                        titleEl.textContent = name.trim() || namespace.replace('web:', '').substring(0, 12) + '...';
+                    }
+                }
+
+                loadSessions();
+            } catch (e) {
+                loadSessions();
+            }
+        }
+
+        function startHeaderRename() {
+            if (!currentNamespace) return;
+            const titleEl = document.getElementById('chatTitle');
+            const current = cachedSessions.find(s => s.namespace === currentNamespace);
+            const currentName = current?.name || '';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'chat-title-input';
+            input.value = currentName;
+            input.placeholder = 'Name this session...';
+
+            titleEl.replaceWith(input);
+            input.focus();
+            input.select();
+
+            const finish = async () => {
+                input.removeEventListener('blur', finish);
+                input.removeEventListener('keydown', onKey);
+                const newTitle = document.createElement('span');
+                newTitle.id = 'chatTitle';
+                newTitle.onclick = startHeaderRename;
+                const trimmed = input.value.trim();
+                newTitle.textContent = trimmed || currentNamespace.replace('web:', '').substring(0, 12) + '...';
+                input.replaceWith(newTitle);
+                await renameSession(currentNamespace, input.value);
+            };
+
+            const onKey = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                } else if (e.key === 'Escape') {
+                    input.removeEventListener('blur', finish);
+                    input.removeEventListener('keydown', onKey);
+                    const newTitle = document.createElement('span');
+                    newTitle.id = 'chatTitle';
+                    newTitle.onclick = startHeaderRename;
+                    newTitle.textContent = titleEl.textContent || currentName || currentNamespace.replace('web:', '').substring(0, 12) + '...';
+                    input.replaceWith(newTitle);
+                }
+            };
+
+            input.addEventListener('blur', finish);
+            input.addEventListener('keydown', onKey);
+        }
+
+        function newChat() {
+            currentNamespace = null;
+            const container = document.getElementById('messages');
+            container.innerHTML = '<div class="empty-state" id="emptyState">Send a message to start a conversation</div>';
+            document.getElementById('chatTitle').textContent = 'New Chat';
+            updateWorkingDirBadge(null);
+            updateChaosToggle(false);
+            streamingElement = null;
+            streamingText = '';
+            isStreaming = false;
+            document.getElementById('sendBtn').disabled = false;
+            loadSessions();
+        }
+
+        // ---------------------------------------------------------------------------
+        // Working Directory
+        // ---------------------------------------------------------------------------
+
+        let dirPickerDebounce = null;
+        let dirPickerActiveIndex = -1;
+
+        function updateWorkingDirBadge(dir) {
+            const badge = document.getElementById('workingDirBadge');
+            if (!badge) return;
+            if (dir) {
+                const parts = dir.replace(/\/+$/, '').split('/');
+                const shortName = parts[parts.length - 1] || dir;
+                badge.innerHTML = '&#128193; ' + shortName;
+                badge.title = dir;
+                badge.classList.remove('empty');
+            } else {
+                badge.innerHTML = '&#128193; Set directory';
+                badge.title = 'Set working directory';
+                badge.classList.add('empty');
+            }
+        }
+
+        function editWorkingDirectory() {
+            if (!currentNamespace) {
+                alert('Send a message first to create a session, then set its directory.');
+                return;
+            }
+            openDirPicker();
+        }
+
+        function openDirPicker() {
+            const overlay = document.getElementById('dirPickerOverlay');
+            const input = document.getElementById('dirPickerInput');
+            const currentInfo = document.getElementById('dirPickerCurrent');
+            const session = cachedSessions.find(s => s.namespace === currentNamespace);
+            const currentDir = session?.working_directory || '';
+
+            if (currentDir) {
+                currentInfo.textContent = 'Current: ' + currentDir;
+            } else {
+                currentInfo.textContent = 'No directory set for this session.';
+            }
+
+            input.value = currentDir;
+            hideDirSuggestions();
+            overlay.classList.remove('hidden');
+            // Focus after animation frame so the overlay is visible
+            requestAnimationFrame(() => {
+                input.focus();
+                input.select();
+                // Trigger initial autocomplete if there's a value
+                if (currentDir) onDirPickerInput();
+            });
+        }
+
+        function closeDirPicker() {
+            document.getElementById('dirPickerOverlay').classList.add('hidden');
+            hideDirSuggestions();
+            if (dirPickerDebounce) {
+                clearTimeout(dirPickerDebounce);
+                dirPickerDebounce = null;
+            }
+        }
+
+        function hideDirSuggestions() {
+            const el = document.getElementById('dirPickerSuggestions');
+            el.classList.remove('visible');
+            el.innerHTML = '';
+            dirPickerActiveIndex = -1;
+        }
+
+        function showDirSuggestions(dirs) {
+            const el = document.getElementById('dirPickerSuggestions');
+            if (!dirs.length) {
+                hideDirSuggestions();
+                return;
+            }
+            dirPickerActiveIndex = 0;
+            el.innerHTML = dirs.map((dir, i) => {
+                const parts = dir.replace(/\/+$/, '').split('/');
+                const name = parts[parts.length - 1] || dir;
+                return `<div class="dir-suggestion-item ${i === 0 ? 'active' : ''}"
+                             data-path="${escapeHtml(dir)}"
+                             onmousedown="event.preventDefault(); selectDirSuggestion('${escapeHtml(dir)}')"
+                             onmouseenter="dirPickerActiveIndex=${i}; updateDirSuggestionActive()">
+                    <span class="dir-suggestion-icon">&#128193;</span>
+                    <span>${escapeHtml(name)}</span>
+                </div>`;
+            }).join('');
+            el.classList.add('visible');
+        }
+
+        function updateDirSuggestionActive() {
+            const items = document.querySelectorAll('.dir-suggestion-item');
+            items.forEach((item, i) => {
+                item.classList.toggle('active', i === dirPickerActiveIndex);
+                if (i === dirPickerActiveIndex) {
+                    item.scrollIntoView({ block: 'nearest' });
+                }
+            });
+        }
+
+        function selectDirSuggestion(path) {
+            const input = document.getElementById('dirPickerInput');
+            // Set value with trailing slash so user can keep drilling down
+            input.value = path.endsWith('/') ? path : path + '/';
+            input.focus();
+            // Trigger autocomplete for the new path
+            onDirPickerInput();
+        }
+
+        function onDirPickerInput() {
+            if (dirPickerDebounce) clearTimeout(dirPickerDebounce);
+            dirPickerDebounce = setTimeout(async () => {
+                const value = document.getElementById('dirPickerInput').value;
+                if (!value) {
+                    hideDirSuggestions();
+                    return;
+                }
+                try {
+                    const headers = {};
+                    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                    const resp = await fetch(`/api/fs/directories?path=${encodeURIComponent(value)}`, { headers });
+                    if (!resp.ok) { hideDirSuggestions(); return; }
+                    const data = await resp.json();
+                    showDirSuggestions(data.directories || []);
+                } catch (e) {
+                    hideDirSuggestions();
+                }
+            }, 150);
+        }
+
+        function onDirPickerKeydown(e) {
+            const items = document.querySelectorAll('.dir-suggestion-item');
+            const suggestionsVisible = items.length > 0;
+
+            if (e.key === 'ArrowDown' && suggestionsVisible) {
+                e.preventDefault();
+                dirPickerActiveIndex = Math.min(dirPickerActiveIndex + 1, items.length - 1);
+                updateDirSuggestionActive();
+            } else if (e.key === 'ArrowUp' && suggestionsVisible) {
+                e.preventDefault();
+                dirPickerActiveIndex = Math.max(dirPickerActiveIndex - 1, 0);
+                updateDirSuggestionActive();
+            } else if (e.key === 'Tab' && suggestionsVisible && dirPickerActiveIndex >= 0) {
+                e.preventDefault();
+                const activeItem = items[dirPickerActiveIndex];
+                if (activeItem) {
+                    selectDirSuggestion(activeItem.dataset.path);
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (suggestionsVisible && dirPickerActiveIndex >= 0) {
+                    const activeItem = items[dirPickerActiveIndex];
+                    if (activeItem) {
+                        selectDirSuggestion(activeItem.dataset.path);
+                    }
+                } else {
+                    confirmDirPicker();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                if (suggestionsVisible) {
+                    hideDirSuggestions();
+                } else {
+                    closeDirPicker();
+                }
+            }
+        }
+
+        async function confirmDirPicker() {
+            const input = document.getElementById('dirPickerInput');
+            let newDir = input.value.trim();
+            // Remove trailing slash for cleanliness (unless it's root "/")
+            if (newDir.length > 1 && newDir.endsWith('/')) {
+                newDir = newDir.slice(0, -1);
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch(`/api/sessions/${encodeURIComponent(currentNamespace)}/directory`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ directory: newDir }),
+                });
+
+                const data = await resp.json();
+                if (!resp.ok) {
+                    alert(data.error || 'Failed to set directory');
+                    return;
+                }
+
+                const session = cachedSessions.find(s => s.namespace === currentNamespace);
+                if (session) {
+                    session.working_directory = newDir || null;
+                }
+                updateWorkingDirBadge(newDir || null);
+                closeDirPicker();
+            } catch (e) {
+                alert('Error setting directory: ' + e.message);
+            }
+        }
+
+        async function clearDirPicker() {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch(`/api/sessions/${encodeURIComponent(currentNamespace)}/directory`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ directory: '' }),
+                });
+
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to clear directory');
+                    return;
+                }
+
+                const session = cachedSessions.find(s => s.namespace === currentNamespace);
+                if (session) {
+                    session.working_directory = null;
+                }
+                updateWorkingDirBadge(null);
+                closeDirPicker();
+            } catch (e) {
+                alert('Error clearing directory: ' + e.message);
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Tool Approval
+        // ---------------------------------------------------------------------------
+
+        function showApprovalCard(callId, toolName, args) {
+            const container = document.getElementById('messages');
+            const card = document.createElement('div');
+            card.className = 'approval-card';
+            card.id = `approval-${callId}`;
+
+            const argsStr = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+
+            card.innerHTML = `
+                <div class="approval-header">
+                    <span class="approval-icon">&#9888;</span>
+                    Tool Approval Required
+                </div>
+                <div style="margin-bottom: 8px; font-size: 13px; color: var(--text-secondary);">
+                    <span class="approval-tool-name">${escapeHtml(toolName)}</span> wants to execute:
+                </div>
+                <div class="approval-args">${escapeHtml(argsStr)}</div>
+                <div class="approval-actions" id="approval-actions-${callId}">
+                    <button class="approve-btn" onclick="respondApproval('${callId}', true)">&#10003; Approve</button>
+                    <button class="deny-btn" onclick="respondApproval('${callId}', false)">&#10007; Deny</button>
+                </div>
+            `;
+
+            container.appendChild(card);
+            scrollToBottom();
+        }
+
+        function respondApproval(callId, approved) {
+            // Send the response back via WebSocket
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'tool_approval_response',
+                    call_id: callId,
+                    approved: approved,
+                }));
+            }
+
+            // Update the card to show the decision
+            const actionsEl = document.getElementById(`approval-actions-${callId}`);
+            if (actionsEl) {
+                if (approved) {
+                    actionsEl.innerHTML = '<span class="approval-decided approved">&#10003; Approved</span>';
+                } else {
+                    actionsEl.innerHTML = '<span class="approval-decided denied">&#10007; Denied</span>';
+                }
+            }
+
+            // If approved, show typing indicator for the tool execution
+            if (approved) {
+                showTypingIndicator();
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Chaos Mode
+        // ---------------------------------------------------------------------------
+
+        async function toggleChaosMode(enabled) {
+            if (!currentNamespace) {
+                // Reset checkbox — can't enable chaos mode without a session
+                document.getElementById('chaosModeCheckbox').checked = false;
+                return;
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch(`/api/sessions/${encodeURIComponent(currentNamespace)}/chaos-mode`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ enabled }),
+                });
+
+                if (!resp.ok) {
+                    document.getElementById('chaosModeCheckbox').checked = !enabled;
+                    return;
+                }
+
+                updateChaosToggle(enabled);
+
+                // Update cached session
+                const session = cachedSessions.find(s => s.namespace === currentNamespace);
+                if (session) {
+                    session.chaos_mode = enabled;
+                }
+            } catch (e) {
+                document.getElementById('chaosModeCheckbox').checked = !enabled;
+            }
+        }
+
+        function updateChaosToggle(enabled) {
+            const checkbox = document.getElementById('chaosModeCheckbox');
+            const label = document.getElementById('chaosToggle');
+            if (checkbox) checkbox.checked = enabled;
+            if (label) {
+                if (enabled) {
+                    label.classList.add('active');
+                } else {
+                    label.classList.remove('active');
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Theme
+        // ---------------------------------------------------------------------------
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('agentic_theme', next);
+            document.getElementById('themeIcon').innerHTML = next === 'dark' ? '&#9788;' : '&#9790;';
+        }
+
+        function loadTheme() {
+            const saved = localStorage.getItem('agentic_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+            document.getElementById('themeIcon').innerHTML = saved === 'dark' ? '&#9788;' : '&#9790;';
+        }
+
+        // ---------------------------------------------------------------------------
+        // Settings
+        // ---------------------------------------------------------------------------
+
+        // ---------------------------------------------------------------------------
+        // Sidebar (mobile)
+        // ---------------------------------------------------------------------------
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('visible', sidebar.classList.contains('open'));
+        }
+
+        function closeSidebar() {
+            document.querySelector('.sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('visible');
+        }
+
+        // ---------------------------------------------------------------------------
+        // Settings tabs
+        // ---------------------------------------------------------------------------
+
+        function switchSettingsTab(tabName, btnEl) {
+            document.querySelectorAll('.settings-section[data-tab]').forEach(s => s.classList.remove('tab-active'));
+            document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+            const section = document.querySelector(`.settings-section[data-tab="${tabName}"]`);
+            if (section) section.classList.add('tab-active');
+            if (btnEl) btnEl.classList.add('active');
+            localStorage.setItem('agentic_settings_tab', tabName);
+
+            // Load tab-specific data
+            if (tabName === 'discord') loadSettingsData();
+            if (tabName === 'scheduled') { loadChannels().then(() => loadCronJobs()); }
+            if (tabName === 'agents') loadAgents();
+        }
+
+        function restoreSettingsTab() {
+            const saved = localStorage.getItem('agentic_settings_tab') || 'general';
+            const tabs = document.querySelectorAll('.settings-tab');
+            tabs.forEach(t => {
+                const name = t.textContent.trim().toLowerCase();
+                const tabMap = { 'general': 'general', 'agents': 'agents', 'discord': 'discord', 'tasks': 'scheduled' };
+                if (tabMap[name] === saved) {
+                    switchSettingsTab(saved, t);
+                }
+            });
+        }
+
+        function openSettings() {
+            loadSettingsData();
+            restoreSettingsTab();
+            document.getElementById('settingsOverlay').classList.remove('hidden');
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsOverlay').classList.add('hidden');
+            document.getElementById('providerStatus').textContent = '';
+            document.getElementById('providerStatus').className = 'settings-status';
+            document.getElementById('discordStatus').textContent = '';
+            document.getElementById('discordStatus').className = 'settings-status';
+            hideAgentForm();
+        }
+
+        // ---------------------------------------------------------------------------
+        // Agents
+        // ---------------------------------------------------------------------------
+
+        let cachedAgents = [];
+        let editingAgentName = null;
+
+        async function loadAgents() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/agents', { headers });
+                if (!resp.ok) return;
+                cachedAgents = await resp.json();
+                renderAgents(cachedAgents);
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function renderAgents(agents) {
+            const list = document.getElementById('agentList');
+            list.innerHTML = '';
+
+            if (agents.length === 0) {
+                list.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:12px 0">No agents configured.</div>';
+                return;
+            }
+
+            agents.forEach(agent => {
+                const div = document.createElement('div');
+                div.className = 'cron-job';
+                const personality = agent.personality.length > 60
+                    ? agent.personality.substring(0, 60) + '...'
+                    : agent.personality;
+                const modelBadge = agent.model
+                    ? `<span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.model)}</span>`
+                    : '';
+
+                div.innerHTML = `
+                    <div class="cron-job-header">
+                        <span class="cron-job-name">${escapeHtml(agent.name)}${modelBadge}</span>
+                        <div class="cron-job-actions">
+                            <button onclick="editAgent('${escapeHtml(agent.name)}')">Edit</button>
+                            ${agents.length > 1 ? `<button class="danger" onclick="deleteAgent('${escapeHtml(agent.name)}')">Delete</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="cron-job-meta" style="margin-top:4px;font-style:italic;opacity:0.8">
+                        ${escapeHtml(personality)}
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function showAddAgentForm() {
+            editingAgentName = null;
+            document.getElementById('agentFormTitle').textContent = 'Add Agent';
+            document.getElementById('agentFormName').value = '';
+            document.getElementById('agentFormName').readOnly = false;
+            document.getElementById('agentFormPersonality').value = '';
+            document.getElementById('agentFormPrompt').value = '';
+            populateCronModelSelect(document.getElementById('agentFormModel'), '');
+            document.getElementById('agentFormStatus').textContent = '';
+            document.getElementById('agentFormContainer').style.display = 'block';
+        }
+
+        function editAgent(name) {
+            const agent = cachedAgents.find(a => a.name === name);
+            if (!agent) return;
+
+            editingAgentName = name;
+            document.getElementById('agentFormTitle').textContent = 'Edit Agent';
+            document.getElementById('agentFormName').value = agent.name;
+            document.getElementById('agentFormName').readOnly = false;
+            document.getElementById('agentFormPersonality').value = agent.personality || '';
+            document.getElementById('agentFormPrompt').value = agent.system_prompt || '';
+            populateCronModelSelect(document.getElementById('agentFormModel'), agent.model || '');
+            document.getElementById('agentFormStatus').textContent = '';
+            document.getElementById('agentFormContainer').style.display = 'block';
+        }
+
+        function hideAgentForm() {
+            document.getElementById('agentFormContainer').style.display = 'none';
+            editingAgentName = null;
+        }
+
+        async function saveAgent() {
+            const statusEl = document.getElementById('agentFormStatus');
+            statusEl.textContent = 'Saving...';
+            statusEl.className = 'settings-status';
+
+            const name = document.getElementById('agentFormName').value.trim();
+            const personality = document.getElementById('agentFormPersonality').value.trim();
+            const systemPrompt = document.getElementById('agentFormPrompt').value.trim() || null;
+            const model = document.getElementById('agentFormModel').value || null;
+
+            if (!name) {
+                statusEl.textContent = 'Name is required.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+
+            const body = { name, personality: personality || 'friendly, helpful, and concise', system_prompt: systemPrompt, model };
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                let resp;
+                if (editingAgentName) {
+                    resp = await fetch(`/api/agents/${encodeURIComponent(editingAgentName)}`, {
+                        method: 'PUT', headers, body: JSON.stringify(body),
+                    });
+                } else {
+                    resp = await fetch('/api/agents', {
+                        method: 'POST', headers, body: JSON.stringify(body),
+                    });
+                }
+
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    statusEl.textContent = 'Saved.';
+                    statusEl.className = 'settings-status success';
+                    hideAgentForm();
+                    loadAgents();
+                    loadAgentSelector();
+                } else {
+                    statusEl.textContent = data.error || 'Save failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function deleteAgent(name) {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch(`/api/agents/${encodeURIComponent(name)}`, {
+                    method: 'DELETE', headers,
+                });
+
+                if (resp.ok) {
+                    loadAgents();
+                    loadAgentSelector();
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function loadAgentSelector() {
+            // Populate the agent selector dropdown in chat input
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/agents', { headers });
+                if (!resp.ok) return;
+                const agents = await resp.json();
+
+                // Store agent names for display and @mention autocomplete
+                cachedAgentNames = agents.map(a => a.name);
+                if (agents.length > 0) {
+                    currentAgentName = agents[0].name;
+                }
+
+                const select = document.getElementById('agentSelect');
+                if (!select) return;
+
+                const prevValue = select.value;
+                select.innerHTML = '';
+
+                if (agents.length <= 1) {
+                    select.style.display = 'none';
+                    return;
+                }
+
+                select.style.display = '';
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = agents[0] ? agents[0].name + ' (default)' : 'Default agent';
+                select.appendChild(defaultOpt);
+
+                agents.forEach((a, i) => {
+                    if (i === 0) return;
+                    const opt = document.createElement('option');
+                    opt.value = a.name;
+                    opt.textContent = a.name;
+                    if (a.name === prevValue) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function loadSettingsData() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings', { headers });
+                if (!resp.ok) return;
+                const data = await resp.json();
+
+                // User display name (stored in localStorage)
+                document.getElementById('settingsUserName').value = userDisplayName;
+
+                // Provider
+                const badge = document.getElementById('settingsAuthBadge');
+                const source = data.provider.auth_source || 'none';
+                badge.textContent = source === 'web_ui' ? 'Web UI' :
+                                   source === 'cli' ? 'Claude CLI' :
+                                   source === 'env' ? 'Env Var' :
+                                   source === 'config' ? 'Config File' : 'Not Set';
+                badge.className = `auth-badge ${source}`;
+
+                document.getElementById('settingsProviderType').value = data.provider.provider_type || 'claude';
+                document.getElementById('settingsModel').value = data.provider.model || '';
+                document.getElementById('settingsApiKey').value = '';
+                document.getElementById('settingsApiUrl').value = data.provider.api_url || '';
+                document.getElementById('settingsApiUrlField').style.display =
+                    data.provider.provider_type === 'openai' ? 'block' : 'none';
+
+                // Discord
+                const hint = document.getElementById('discordTokenHint');
+                if (data.discord.token_hint) {
+                    hint.textContent = `(current: ${data.discord.token_hint})`;
+                } else {
+                    hint.textContent = '(not set)';
+                }
+
+                const connBadge = document.getElementById('discordConnBadge');
+                if (data.discord.connected) {
+                    connBadge.textContent = 'Connected';
+                    connBadge.className = 'auth-badge cli';
+                } else {
+                    connBadge.textContent = 'Disconnected';
+                    connBadge.className = 'auth-badge none';
+                }
+
+                document.getElementById('settingsDiscordFilter').value = data.discord.filter || 'mentions';
+                const users = data.discord.allowed_users || [];
+                document.getElementById('settingsAllowedUsers').value = users.join(', ');
+                toggleAllowedUsers();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function toggleAllowedUsers() {
+            const filter = document.getElementById('settingsDiscordFilter').value;
+            document.getElementById('allowedUsersField').style.display =
+                filter === 'dm' ? 'block' : 'none';
+        }
+
+        // Show/hide API URL field in settings
+        document.getElementById('settingsProviderType').addEventListener('change', function() {
+            document.getElementById('settingsApiUrlField').style.display =
+                this.value === 'openai' ? 'block' : 'none';
+        });
+
+        async function saveProviderSettings() {
+            const statusEl = document.getElementById('providerStatus');
+            statusEl.textContent = 'Saving...';
+            statusEl.className = 'settings-status';
+
+            const body = {
+                provider_type: document.getElementById('settingsProviderType').value,
+                model: document.getElementById('settingsModel').value.trim() || undefined,
+            };
+
+            const key = document.getElementById('settingsApiKey').value.trim();
+            if (key) body.api_key = key;
+
+            const url = document.getElementById('settingsApiUrl').value.trim();
+            if (url) body.api_url = url;
+
+            // Need at least an API key if provider isn't configured yet
+            if (!key && !providerConfigured) {
+                statusEl.textContent = 'API key is required for initial setup.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings/provider', {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify(body),
+                });
+
+                const data = await resp.json();
+
+                if (resp.ok && data.success) {
+                    statusEl.textContent = 'Provider settings saved.';
+                    statusEl.className = 'settings-status success';
+                    providerConfigured = true;
+                    document.getElementById('setupOverlay').classList.add('hidden');
+                    loadSettingsData();
+
+                    // Reconnect WebSocket if needed
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        connectWebSocket();
+                    }
+                } else {
+                    statusEl.textContent = data.error || 'Save failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function detectProvider() {
+            const statusEl = document.getElementById('providerStatus');
+            statusEl.textContent = 'Detecting credentials...';
+            statusEl.className = 'settings-status';
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings/provider/detect', {
+                    method: 'POST',
+                    headers,
+                });
+
+                const data = await resp.json();
+
+                if (data.success) {
+                    const source = data.auth_source === 'cli' ? 'Claude CLI' :
+                                  data.auth_source === 'env' ? 'environment variable' : data.auth_source;
+                    statusEl.textContent = `Detected credentials from ${source}.`;
+                    statusEl.className = 'settings-status success';
+                    providerConfigured = true;
+                    document.getElementById('setupOverlay').classList.add('hidden');
+                    loadSettingsData();
+
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        connectWebSocket();
+                    }
+                } else {
+                    statusEl.textContent = data.error || 'No credentials found.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function saveDiscordSettings() {
+            const statusEl = document.getElementById('discordStatus');
+            statusEl.textContent = 'Saving & connecting...';
+            statusEl.className = 'settings-status';
+
+            const token = document.getElementById('settingsDiscordToken').value.trim();
+            const filter = document.getElementById('settingsDiscordFilter').value;
+            const allowedUsersStr = document.getElementById('settingsAllowedUsers').value.trim();
+            const allowedUsers = allowedUsersStr
+                ? allowedUsersStr.split(',').map(u => u.trim()).filter(u => u)
+                : [];
+
+            if (filter === 'dm' && allowedUsers.length === 0) {
+                statusEl.textContent = 'Please enter at least one allowed username for DM filter.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+
+            const body = { filter, allowed_users: allowedUsers };
+            if (token) body.token = token;
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings/discord', {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify(body),
+                });
+
+                const data = await resp.json();
+
+                if (resp.ok && data.success) {
+                    if (data.connected) {
+                        statusEl.textContent = 'Discord connected successfully.';
+                        statusEl.className = 'settings-status success';
+                    } else {
+                        statusEl.textContent = 'Settings saved. Enter a bot token to connect.';
+                        statusEl.className = 'settings-status';
+                    }
+                    document.getElementById('settingsDiscordToken').value = '';
+                    loadSettingsData();
+                } else {
+                    statusEl.textContent = data.error || 'Save failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Cron Jobs
+        // ---------------------------------------------------------------------------
+
+        let cachedChannels = [];
+
+        async function loadChannels() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/channels', { headers });
+                if (resp.ok) {
+                    cachedChannels = await resp.json();
+                }
+            } catch (e) {
+                // Silently fail — dropdown will just show "Default (web)"
+            }
+        }
+
+        function populateChannelSelect(selectEl, selectedValue) {
+            selectEl.innerHTML = '<option value="web">Default (web)</option>';
+
+            // Group channels by group name
+            const groups = {};
+            cachedChannels.forEach(ch => {
+                if (!groups[ch.group]) groups[ch.group] = [];
+                groups[ch.group].push(ch);
+            });
+
+            for (const [groupName, channels] of Object.entries(groups)) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = groupName;
+                channels.forEach(ch => {
+                    const opt = document.createElement('option');
+                    opt.value = ch.id;
+                    const typeLabel = ch.channel_type === 'web_session' ? '' : ` (${ch.channel_type})`;
+                    opt.textContent = `${ch.name}${typeLabel}`;
+                    if (ch.id === selectedValue) opt.selected = true;
+                    optgroup.appendChild(opt);
+                });
+                selectEl.appendChild(optgroup);
+            }
+
+            // If the selected value isn't in the list, add it as a custom option
+            if (selectedValue && selectedValue !== 'web' && !cachedChannels.find(c => c.id === selectedValue)) {
+                const opt = document.createElement('option');
+                opt.value = selectedValue;
+                opt.textContent = selectedValue;
+                opt.selected = true;
+                selectEl.appendChild(opt);
+            }
+        }
+
+        async function loadCronJobs() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/cron', { headers });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                renderCronJobs(data.jobs || []);
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        let cachedCronJobs = [];
+
+        function renderCronJobs(jobs) {
+            cachedCronJobs = jobs;
+            const list = document.getElementById('cronJobList');
+            const empty = document.getElementById('cronEmpty');
+
+            // Clear existing job elements (keep the empty message)
+            list.querySelectorAll('.cron-job,.cron-edit-form').forEach(el => el.remove());
+
+            if (jobs.length === 0) {
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            jobs.forEach(job => {
+                const div = document.createElement('div');
+                div.className = 'cron-job';
+                div.id = `cronJob-${job.id}`;
+
+                const schedule = formatSchedule(job.schedule);
+                const nextRun = job.next_run ? new Date(job.next_run).toLocaleString() : 'N/A';
+                const pauseBtn = job.status === 'active'
+                    ? `<button onclick="pauseCronJob('${job.id}')">Pause</button>`
+                    : job.status === 'paused'
+                    ? `<button onclick="resumeCronJob('${job.id}')">Resume</button>`
+                    : '';
+
+                const payloadSummary = job.payload?.type === 'agent_turn'
+                    ? escapeHtml(job.payload.prompt || '')
+                    : escapeHtml(job.payload?.message || '');
+                const truncatedPayload = payloadSummary.length > 60
+                    ? payloadSummary.substring(0, 60) + '...'
+                    : payloadSummary;
+
+                div.innerHTML = `
+                    <div class="cron-job-header">
+                        <span class="cron-job-name">${escapeHtml(job.name)}</span>
+                        <div class="cron-job-actions">
+                            <button onclick="editCronJob('${job.id}')">Edit</button>
+                            ${pauseBtn}
+                            <button class="danger" onclick="deleteCronJob('${job.id}')">Delete</button>
+                        </div>
+                    </div>
+                    <div class="cron-job-meta">
+                        <span class="cron-status-badge ${job.status}">${job.status}</span>
+                        <span>${schedule}</span>
+                        ${job.model ? `<span>Model: ${escapeHtml(job.model)}</span>` : ''}
+                        <span>Channel: ${escapeHtml(resolveChannelName(job.namespace))}</span>
+                        <span>Next: ${nextRun}</span>
+                        <span>Runs: ${job.run_count}</span>
+                    </div>
+                    <div class="cron-job-meta" style="margin-top:4px;font-style:italic;opacity:0.8">
+                        ${truncatedPayload}
+                    </div>
+                `;
+
+                list.appendChild(div);
+            });
+        }
+
+        function formatSchedule(schedule) {
+            if (!schedule) return 'Unknown';
+            switch (schedule.type) {
+                case 'every':
+                    const mins = Math.round(schedule.interval_ms / 60000);
+                    return mins >= 60 ? `Every ${Math.round(mins / 60)}h` : `Every ${mins}m`;
+                case 'cron':
+                    return `Cron: ${schedule.expression}`;
+                case 'at':
+                    return `At: ${new Date(schedule.datetime).toLocaleString()}`;
+                default:
+                    return JSON.stringify(schedule);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function resolveChannelName(id) {
+            if (!id || id === 'web') return 'Default (web)';
+            const ch = cachedChannels.find(c => c.id === id);
+            if (ch) {
+                const typeLabel = ch.channel_type === 'web_session' ? '' : ` (${ch.channel_type})`;
+                return `${ch.name}${typeLabel}`;
+            }
+            return id;
+        }
+
+        function toggleCronForm() {
+            const form = document.getElementById('cronCreateForm');
+            form.classList.toggle('visible');
+            if (form.classList.contains('visible')) {
+                populateCronModelSelect(document.getElementById('cronModel'), '');
+                populateChannelSelect(document.getElementById('cronNamespace'), 'web');
+            } else {
+                document.getElementById('cronName').value = '';
+                document.getElementById('cronScheduleValue').value = '';
+                document.getElementById('cronPayloadValue').value = '';
+                document.getElementById('cronCreateStatus').textContent = '';
+            }
+        }
+
+        function editCronJob(id) {
+            const job = cachedCronJobs.find(j => j.id === id);
+            if (!job) return;
+
+            const card = document.getElementById(`cronJob-${id}`);
+            if (!card) return;
+
+            // Determine current schedule values
+            let schedType = job.schedule?.type || 'every';
+            let schedValue = '';
+            if (schedType === 'every') schedValue = String(Math.round((job.schedule?.interval_ms || 60000) / 60000));
+            else if (schedType === 'cron') schedValue = job.schedule?.expression || '';
+            else if (schedType === 'at') schedValue = job.schedule?.datetime || '';
+
+            const payloadType = job.payload?.type || 'agent_turn';
+            const payloadValue = job.payload?.type === 'agent_turn'
+                ? (job.payload?.prompt || '')
+                : (job.payload?.message || '');
+
+            const form = document.createElement('div');
+            form.className = 'cron-edit-form';
+            form.id = `cronEdit-${id}`;
+            form.innerHTML = `
+                <h4>Edit Task</h4>
+                <div class="settings-field">
+                    <label>Name</label>
+                    <input type="text" id="editCronName-${id}" value="${escapeHtml(job.name)}">
+                </div>
+                <div class="cron-form-row">
+                    <div class="settings-field">
+                        <label>Schedule Type</label>
+                        <select id="editCronSchedType-${id}" onchange="updateEditScheduleUI('${id}')">
+                            <option value="every" ${schedType === 'every' ? 'selected' : ''}>Repeating interval</option>
+                            <option value="cron" ${schedType === 'cron' ? 'selected' : ''}>Cron expression</option>
+                            <option value="at" ${schedType === 'at' ? 'selected' : ''}>One-time (at)</option>
+                        </select>
+                    </div>
+                    <div class="settings-field">
+                        <label id="editCronSchedLabel-${id}">${schedType === 'every' ? 'Interval (minutes)' : schedType === 'cron' ? 'Cron Expression' : 'Date/Time (ISO-8601)'}</label>
+                        <input type="text" id="editCronSchedVal-${id}" value="${escapeHtml(schedValue)}">
+                    </div>
+                </div>
+                <div class="cron-form-row">
+                    <div class="settings-field">
+                        <label>Payload Type</label>
+                        <select id="editCronPayloadType-${id}">
+                            <option value="agent_turn" ${payloadType === 'agent_turn' ? 'selected' : ''}>Agent Turn</option>
+                            <option value="system_event" ${payloadType === 'system_event' ? 'selected' : ''}>System Event</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Prompt / Message</label>
+                    <input type="text" id="editCronPayloadVal-${id}" value="${escapeHtml(payloadValue)}">
+                </div>
+                <div class="settings-field">
+                    <label>Model</label>
+                    <select id="editCronModel-${id}"></select>
+                </div>
+                <div class="settings-field">
+                    <label>Channel</label>
+                    <select id="editCronNamespace-${id}"></select>
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" onclick="saveCronJob('${id}')">Save</button>
+                    <button class="settings-btn-secondary" onclick="cancelCronEdit('${id}')">Cancel</button>
+                </div>
+                <div class="settings-status" id="editCronStatus-${id}"></div>
+            `;
+
+            card.style.display = 'none';
+            card.parentNode.insertBefore(form, card.nextSibling);
+            populateCronModelSelect(document.getElementById(`editCronModel-${id}`), job.model || '');
+            populateChannelSelect(document.getElementById(`editCronNamespace-${id}`), job.namespace || 'web');
+        }
+
+        function updateEditScheduleUI(id) {
+            const type = document.getElementById(`editCronSchedType-${id}`).value;
+            const label = document.getElementById(`editCronSchedLabel-${id}`);
+            switch (type) {
+                case 'every': label.textContent = 'Interval (minutes)'; break;
+                case 'cron': label.textContent = 'Cron Expression'; break;
+                case 'at': label.textContent = 'Date/Time (ISO-8601)'; break;
+            }
+        }
+
+        function cancelCronEdit(id) {
+            const form = document.getElementById(`cronEdit-${id}`);
+            const card = document.getElementById(`cronJob-${id}`);
+            if (form) form.remove();
+            if (card) card.style.display = '';
+        }
+
+        async function saveCronJob(id) {
+            const statusEl = document.getElementById(`editCronStatus-${id}`);
+            statusEl.textContent = '';
+            statusEl.className = 'settings-status';
+
+            const name = document.getElementById(`editCronName-${id}`).value.trim();
+            const schedType = document.getElementById(`editCronSchedType-${id}`).value;
+            const schedValue = document.getElementById(`editCronSchedVal-${id}`).value.trim();
+            const payloadType = document.getElementById(`editCronPayloadType-${id}`).value;
+            const payloadValue = document.getElementById(`editCronPayloadVal-${id}`).value.trim();
+            const editModel = document.getElementById(`editCronModel-${id}`).value || null;
+            const namespace = document.getElementById(`editCronNamespace-${id}`).value.trim();
+
+            if (!name) { statusEl.textContent = 'Name is required.'; statusEl.className = 'settings-status error'; return; }
+            if (!schedValue) { statusEl.textContent = 'Schedule value is required.'; statusEl.className = 'settings-status error'; return; }
+            if (!payloadValue) { statusEl.textContent = 'Prompt/message is required.'; statusEl.className = 'settings-status error'; return; }
+
+            let schedule;
+            switch (schedType) {
+                case 'every':
+                    const mins = parseInt(schedValue, 10);
+                    if (isNaN(mins) || mins <= 0) { statusEl.textContent = 'Interval must be a positive number.'; statusEl.className = 'settings-status error'; return; }
+                    schedule = { type: 'every', interval_ms: mins * 60000 };
+                    break;
+                case 'cron':
+                    schedule = { type: 'cron', expression: schedValue };
+                    break;
+                case 'at':
+                    schedule = { type: 'at', datetime: schedValue };
+                    break;
+            }
+
+            let payload;
+            if (payloadType === 'agent_turn') {
+                payload = { type: 'agent_turn', prompt: payloadValue };
+            } else {
+                payload = { type: 'system_event', message: payloadValue };
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const updateBody = { name, schedule, payload, namespace: namespace || 'web', model: editModel };
+
+                const resp = await fetch(`/api/cron/${encodeURIComponent(id)}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify(updateBody),
+                });
+
+                if (resp.ok) {
+                    loadCronJobs();
+                } else {
+                    const data = await resp.json();
+                    statusEl.textContent = data.error || 'Failed to update task.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        function updateCronScheduleUI() {
+            const type = document.getElementById('cronScheduleType').value;
+            const label = document.getElementById('cronScheduleLabel');
+            const input = document.getElementById('cronScheduleValue');
+
+            switch (type) {
+                case 'every':
+                    label.textContent = 'Interval (minutes)';
+                    input.placeholder = '60';
+                    break;
+                case 'cron':
+                    label.textContent = 'Cron Expression';
+                    input.placeholder = '*/5 * * * *';
+                    break;
+                case 'at':
+                    label.textContent = 'Date/Time (ISO-8601)';
+                    input.placeholder = '2025-12-31T23:59:00Z';
+                    break;
+            }
+        }
+
+        async function createCronJob() {
+            const statusEl = document.getElementById('cronCreateStatus');
+            statusEl.textContent = '';
+            statusEl.className = 'settings-status';
+
+            const name = document.getElementById('cronName').value.trim();
+            const scheduleType = document.getElementById('cronScheduleType').value;
+            const scheduleValue = document.getElementById('cronScheduleValue').value.trim();
+            const payloadType = document.getElementById('cronPayloadType').value;
+            const payloadValue = document.getElementById('cronPayloadValue').value.trim();
+            const cronModel = document.getElementById('cronModel').value || null;
+            const namespace = document.getElementById('cronNamespace').value.trim();
+
+            if (!name) {
+                statusEl.textContent = 'Name is required.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+            if (!scheduleValue) {
+                statusEl.textContent = 'Schedule value is required.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+            if (!payloadValue) {
+                statusEl.textContent = 'Prompt/message is required.';
+                statusEl.className = 'settings-status error';
+                return;
+            }
+
+            // Build schedule object
+            let schedule;
+            switch (scheduleType) {
+                case 'every':
+                    const mins = parseInt(scheduleValue, 10);
+                    if (isNaN(mins) || mins <= 0) {
+                        statusEl.textContent = 'Interval must be a positive number.';
+                        statusEl.className = 'settings-status error';
+                        return;
+                    }
+                    schedule = { type: 'every', interval_ms: mins * 60000 };
+                    break;
+                case 'cron':
+                    schedule = { type: 'cron', expression: scheduleValue };
+                    break;
+                case 'at':
+                    schedule = { type: 'at', datetime: scheduleValue };
+                    break;
+            }
+
+            // Build payload object
+            let payload;
+            if (payloadType === 'agent_turn') {
+                payload = { type: 'agent_turn', prompt: payloadValue };
+            } else {
+                payload = { type: 'system_event', message: payloadValue };
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const createBody = { name, schedule, payload, namespace: namespace || 'web' };
+                if (cronModel) createBody.model = cronModel;
+
+                const resp = await fetch('/api/cron', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(createBody),
+                });
+
+                if (resp.ok) {
+                    statusEl.textContent = 'Task created.';
+                    statusEl.className = 'settings-status success';
+                    toggleCronForm();
+                    loadCronJobs();
+                } else {
+                    const data = await resp.json();
+                    statusEl.textContent = data.error || 'Failed to create task.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function deleteCronJob(id) {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                await fetch(`/api/cron/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                    headers,
+                });
+                loadCronJobs();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function pauseCronJob(id) {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                await fetch(`/api/cron/${encodeURIComponent(id)}/pause`, {
+                    method: 'POST',
+                    headers,
+                });
+                loadCronJobs();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function resumeCronJob(id) {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                await fetch(`/api/cron/${encodeURIComponent(id)}/resume`, {
+                    method: 'POST',
+                    headers,
+                });
+                loadCronJobs();
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Setup / Configuration
+        // ---------------------------------------------------------------------------
+
+        let providerConfigured = false;
+        let currentProviderType = 'claude';
+        let currentDefaultModel = '';
+
+        // Show/hide API URL field for OpenAI
+        document.getElementById('setupProviderType').addEventListener('change', function() {
+            document.getElementById('setupApiUrlField').style.display =
+                this.value === 'openai' ? 'block' : 'none';
+        });
+
+        async function checkStatus() {
+            try {
+                const resp = await fetch('/api/status');
+                if (!resp.ok) return false;
+                const data = await resp.json();
+                providerConfigured = data.provider_configured;
+
+                // Pre-fill model from server defaults
+                if (data.model && !document.getElementById('setupModel').value) {
+                    document.getElementById('setupModel').placeholder = data.model;
+                }
+                if (data.provider_type) {
+                    document.getElementById('setupProviderType').value = data.provider_type;
+                    document.getElementById('setupApiUrlField').style.display =
+                        data.provider_type === 'openai' ? 'block' : 'none';
+                }
+
+                // Store provider info globally for cron forms
+                currentProviderType = data.provider_type || 'claude';
+                currentDefaultModel = data.model || '';
+
+                // Populate model dropdown
+                populateModelSelect(currentProviderType, currentDefaultModel);
+
+                return data.provider_configured;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function populateModelSelect(providerType, currentModel) {
+            const select = document.getElementById('modelSelect');
+            const prevValue = select.value;
+
+            const claudeModels = [
+                'claude-opus-4-6',
+                'claude-sonnet-4-5-20250929',
+                'claude-haiku-4-5-20251001',
+            ];
+            const openaiModels = [
+                'gpt-4o',
+                'gpt-4o-mini',
+                'gpt-4-turbo',
+                'o1',
+                'o1-mini',
+            ];
+
+            const models = providerType === 'openai' ? openaiModels : claudeModels;
+
+            select.innerHTML = '<option value="">Default' + (currentModel ? ' (' + currentModel + ')' : '') + '</option>';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === prevValue) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function populateCronModelSelect(selectEl, selectedModel) {
+            const claudeModels = ['claude-opus-4-6', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001'];
+            const openaiModels = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'];
+            const models = currentProviderType === 'openai' ? openaiModels : claudeModels;
+
+            selectEl.innerHTML = '<option value="">Default' + (currentDefaultModel ? ' (' + currentDefaultModel + ')' : '') + '</option>';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === selectedModel) opt.selected = true;
+                selectEl.appendChild(opt);
+            });
+        }
+
+        async function submitSetup() {
+            const btn = document.getElementById('setupBtn');
+            const errEl = document.getElementById('setupError');
+            errEl.style.display = 'none';
+
+            const apiKey = document.getElementById('setupApiKey').value.trim();
+            if (!apiKey) {
+                errEl.textContent = 'Please enter an API key.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Configuring...';
+
+            const body = {
+                api_key: apiKey,
+                provider_type: document.getElementById('setupProviderType').value,
+            };
+
+            const model = document.getElementById('setupModel').value.trim();
+            if (model) body.model = model;
+
+            const apiUrl = document.getElementById('setupApiUrl').value.trim();
+            if (apiUrl) body.api_url = apiUrl;
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (window.apiKeyForAuth) headers['Authorization'] = `Bearer ${window.apiKeyForAuth}`;
+
+                const resp = await fetch('/api/config', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(body),
+                });
+
+                const data = await resp.json();
+
+                if (resp.ok && data.success) {
+                    providerConfigured = true;
+                    document.getElementById('setupOverlay').classList.add('hidden');
+                    connectWebSocket();
+                    loadSessions();
+                } else {
+                    errEl.textContent = data.error || 'Configuration failed.';
+                    errEl.style.display = 'block';
+                }
+            } catch (e) {
+                errEl.textContent = `Connection error: ${e.message}`;
+                errEl.style.display = 'block';
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Configure & Start';
+        }
+
+        // Allow pressing Enter in the API key field to submit
+        document.getElementById('setupApiKey').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitSetup();
+        });
+
+        // ---------------------------------------------------------------------------
+        // Init
+        // ---------------------------------------------------------------------------
+
+        loadTheme();
+
+        // Close @mention autocomplete when clicking outside
+        document.addEventListener('mousedown', function(e) {
+            const ac = document.getElementById('mentionAutocomplete');
+            if (ac && !ac.contains(e.target) && e.target.id !== 'messageInput') {
+                hideMentionAutocomplete();
+            }
+        });
+
+        (async function init() {
+            const configured = await checkStatus();
+            if (configured) {
+                document.getElementById('setupOverlay').classList.add('hidden');
+                connectWebSocket();
+                await loadSessions();
+                loadAgentSelector();
+                // Auto-select the most recent session if one exists
+                if (cachedSessions.length > 0) {
+                    loadSession(cachedSessions[0].namespace);
+                }
+            } else {
+                document.getElementById('setupOverlay').classList.remove('hidden');
+            }
+        })();
+    </script>
+</body>
+</html>
