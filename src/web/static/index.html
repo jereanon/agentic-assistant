@@ -3124,6 +3124,8 @@
                 return;
             }
 
+            const localAgents = agents.filter(a => !a.remote);
+
             agents.forEach(agent => {
                 const div = document.createElement('div');
                 div.className = 'cron-job';
@@ -3134,13 +3136,22 @@
                     ? `<span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.model)}</span>`
                     : '';
 
+                const isRemote = agent.remote;
+                const remoteBadge = isRemote
+                    ? `<span class="cron-status-badge" style="margin-left:6px;background:var(--text-secondary);color:var(--bg)">${escapeHtml(agent.instance)}</span>`
+                    : '';
+
+                const actions = isRemote
+                    ? ''
+                    : `<div class="cron-job-actions">
+                            <button onclick="editAgent('${escapeHtml(agent.name)}')">Edit</button>
+                            ${localAgents.length > 1 ? `<button class="danger" onclick="deleteAgent('${escapeHtml(agent.name)}')">Delete</button>` : ''}
+                       </div>`;
+
                 div.innerHTML = `
                     <div class="cron-job-header">
-                        <span class="cron-job-name">${escapeHtml(agent.name)}${modelBadge}</span>
-                        <div class="cron-job-actions">
-                            <button onclick="editAgent('${escapeHtml(agent.name)}')">Edit</button>
-                            ${agents.length > 1 ? `<button class="danger" onclick="deleteAgent('${escapeHtml(agent.name)}')">Delete</button>` : ''}
-                        </div>
+                        <span class="cron-job-name">${escapeHtml(agent.name)}${modelBadge}${remoteBadge}</span>
+                        ${actions}
                     </div>
                     <div class="cron-job-meta" style="margin-top:4px;font-style:italic;opacity:0.8">
                         ${escapeHtml(personality)}
