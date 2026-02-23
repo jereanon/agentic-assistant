@@ -1,0 +1,8 @@
+target/
+result
+.direnv/
+.envrc
+.claude/
+.git/
+*.md
+!README.md

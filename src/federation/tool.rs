@@ -20,11 +20,7 @@ pub struct DelegateToRemoteAgentTool {
 }
 
 impl DelegateToRemoteAgentTool {
-    pub fn new(
-        registry: PeerRegistry,
-        instance_name: String,
-        self_agent: String,
-    ) -> Self {
+    pub fn new(registry: PeerRegistry, instance_name: String, self_agent: String) -> Self {
         Self {
             registry,
             instance_name,
@@ -79,32 +75,32 @@ impl Tool for DelegateToRemoteAgentTool {
         };
 
         // Look up the remote agent
-        let (url, secret, info) =
-            self.registry
-                .find_agent(peer, agent_name)
-                .await
-                .ok_or_else(|| {
-                    let available = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            let agents = self.registry.remote_agents().await;
-                            agents
-                                .iter()
-                                .map(|a| format!("{}:{}", a.instance, a.name))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                    });
+        let (url, secret, info) = self
+            .registry
+            .find_agent(peer, agent_name)
+            .await
+            .ok_or_else(|| {
+                let available = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let agents = self.registry.remote_agents().await;
+                        agents
+                            .iter()
+                            .map(|a| format!("{}:{}", a.instance, a.name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                });
 
-                    ToolError::ExecutionFailed(format!(
-                        "remote agent '{}' not found. Available remote agents: {}",
-                        target,
-                        if available.is_empty() {
-                            "none".to_string()
-                        } else {
-                            available
-                        }
-                    ))
-                })?;
+                ToolError::ExecutionFailed(format!(
+                    "remote agent '{}' not found. Available remote agents: {}",
+                    target,
+                    if available.is_empty() {
+                        "none".to_string()
+                    } else {
+                        available
+                    }
+                ))
+            })?;
 
         // Create the relay request
         let request = RelayRequest {
@@ -112,11 +108,7 @@ impl Tool for DelegateToRemoteAgentTool {
             message: task.to_string(),
             source_peer: self.instance_name.clone(),
             source_agent: Some(self.self_agent.clone()),
-            namespace: format!(
-                "federation:{}:{}",
-                self.instance_name,
-                uuid::Uuid::new_v4()
-            ),
+            namespace: format!("federation:{}:{}", self.instance_name, uuid::Uuid::new_v4()),
         };
 
         // Send the relay request

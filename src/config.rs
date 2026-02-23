@@ -34,6 +34,7 @@ pub struct Config {
     #[serde(default)]
     pub context: ContextConfig,
     #[serde(default)]
+    #[allow(dead_code)]
     pub logging: LoggingConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
@@ -362,6 +363,7 @@ fn default_reserved_for_output() -> usize {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -392,7 +394,7 @@ impl Default for MemoryConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SchedulerConfig {
     /// Enable the cron-based task scheduler
     #[serde(default)]
@@ -402,19 +404,11 @@ pub struct SchedulerConfig {
     pub jobs: Vec<ScheduledJobConfig>,
 }
 
-impl Default for SchedulerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            jobs: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct ScheduledJobConfig {
     pub name: String,
     pub schedule: String,
+    #[allow(dead_code)]
     pub channel: String,
     pub message: String,
 }
@@ -451,7 +445,7 @@ fn default_gateway_port() -> u16 {
     8080
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct MetricsConfig {
     /// Enable metrics collection
     #[serde(default)]
@@ -459,15 +453,6 @@ pub struct MetricsConfig {
     /// Log metrics to stderr periodically
     #[serde(default)]
     pub log_metrics: bool,
-}
-
-impl Default for MetricsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            log_metrics: false,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -493,19 +478,11 @@ fn default_cron_path() -> PathBuf {
     PathBuf::from("cron_jobs.json")
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct McpConfig {
     /// MCP servers to connect to at startup.
     #[serde(default)]
     pub servers: Vec<McpServerConfig>,
-}
-
-impl Default for McpConfig {
-    fn default() -> Self {
-        Self {
-            servers: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -845,7 +822,9 @@ fn read_claude_cli_credentials_file() -> Option<String> {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .ok()?;
-        PathBuf::from(&home).join(".claude").join(".credentials.json")
+        PathBuf::from(&home)
+            .join(".claude")
+            .join(".credentials.json")
     };
 
     let json_str = std::fs::read_to_string(&creds_path).ok()?;
@@ -912,10 +891,7 @@ fn try_keychain_account(account: &str) -> Option<String> {
     }
 
     let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    extract_oauth_token(
-        &parsed,
-        &CredentialStore::Keychain(account.to_string()),
-    )
+    extract_oauth_token(&parsed, &CredentialStore::Keychain(account.to_string()))
 }
 
 // ---- Shared token extraction & refresh ------------------------------------
@@ -931,10 +907,7 @@ enum CredentialStore {
 
 /// Extract the OAuth access token from parsed credentials JSON. Handles
 /// expiry checking and automatic refresh regardless of the backing store.
-fn extract_oauth_token(
-    parsed: &serde_json::Value,
-    store: &CredentialStore,
-) -> Option<String> {
+fn extract_oauth_token(parsed: &serde_json::Value, store: &CredentialStore) -> Option<String> {
     let oauth = parsed.get("claudeAiOauth")?;
     let token = oauth.get("accessToken")?.as_str()?;
 
@@ -1172,8 +1145,8 @@ pub(crate) fn save_discord_settings(
     let mut users_replaced = false;
     let mut discord_section_end = None;
 
-    for i in 0..lines.len() {
-        let trimmed = lines[i].trim().to_string();
+    for (i, line) in lines.iter_mut().enumerate() {
+        let trimmed = line.trim().to_string();
 
         if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
             if trimmed == "[discord]" {
@@ -1187,13 +1160,13 @@ pub(crate) fn save_discord_settings(
 
         if in_discord_section {
             if trimmed.starts_with("filter") || trimmed.starts_with("# filter") {
-                lines[i] = format!("filter = \"{}\"", filter);
+                *line = format!("filter = \"{}\"", filter);
                 filter_replaced = true;
             }
             if trimmed.starts_with("allowed_users") || trimmed.starts_with("# allowed_users") {
                 let users_toml: Vec<String> =
                     allowed_users.iter().map(|u| format!("\"{}\"", u)).collect();
-                lines[i] = format!("allowed_users = [{}]", users_toml.join(", "));
+                *line = format!("allowed_users = [{}]", users_toml.join(", "));
                 users_replaced = true;
             }
         }

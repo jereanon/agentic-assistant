@@ -5,7 +5,12 @@
 { lib, ... }:
 
 let
-  inherit (lib) mkEnableOption mkOption mkPackageOption types;
+  inherit (lib)
+    mkEnableOption
+    mkOption
+    mkPackageOption
+    types
+    ;
 in
 {
   options.services.herald = {

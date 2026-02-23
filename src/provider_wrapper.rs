@@ -4,4 +4,4 @@
 //! This module re-exports the types for backward compatibility within
 //! this crate.
 
-pub use orra::providers::dynamic::{DynamicProvider, PlaceholderProvider};
+pub use orra::providers::dynamic::DynamicProvider;

@@ -87,13 +87,7 @@ impl DiscordManager {
         };
 
         // Gather agent names for @mention routing
-        let agent_names: Vec<String> = self
-            .agent_runtimes
-            .read()
-            .await
-            .keys()
-            .map(|k| k.clone())
-            .collect();
+        let agent_names: Vec<String> = self.agent_runtimes.read().await.keys().cloned().collect();
 
         let channel_config = DiscordChannelConfig::new(dc)
             .with_filter(filter)
@@ -145,10 +139,8 @@ impl DiscordManager {
                 if let Err(e) = router.run(&runtimes_snapshot, Some(&default_key)).await {
                     eprintln!("[discord] Router error: {}", e);
                 }
-            } else {
-                if let Err(e) = ChannelAdapter::run(channel_for_task.as_ref(), &runtime).await {
-                    eprintln!("[discord] Channel adapter error: {}", e);
-                }
+            } else if let Err(e) = ChannelAdapter::run(channel_for_task.as_ref(), &runtime).await {
+                eprintln!("[discord] Channel adapter error: {}", e);
             }
             eprintln!("[discord] Channel adapter stopped");
         });

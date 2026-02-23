@@ -20,7 +20,12 @@
 #   }
 flake:
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.herald;
@@ -44,9 +49,11 @@ in
 
         EnvironmentVariables = {
           HERALD_DATA_DIR = cfg.dataDir;
-        } // lib.optionalAttrs (cfg.claudeCredentialsFile != null) {
+        }
+        // lib.optionalAttrs (cfg.claudeCredentialsFile != null) {
           CLAUDE_CREDENTIALS_FILE = cfg.claudeCredentialsFile;
-        } // cfg.extraEnvironment;
+        }
+        // cfg.extraEnvironment;
       };
     };
   };
