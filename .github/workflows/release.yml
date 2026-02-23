@@ -23,10 +23,6 @@ jobs:
             arch: aarch64
             target_os: linux
             nix_system: aarch64-linux
-          - os: macos-13
-            arch: x86_64
-            target_os: darwin
-            nix_system: x86_64-darwin
           - os: macos-14
             arch: aarch64
             target_os: darwin
