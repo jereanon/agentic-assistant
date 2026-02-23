@@ -193,10 +193,7 @@ async fn main() {
     // --- Session store ---
     let store: Arc<dyn orra::store::SessionStore> = match config.sessions.store.as_str() {
         "file" => {
-            eprintln!(
-                "[init] session store: file ({})",
-                sessions_path.display()
-            );
+            eprintln!("[init] session store: file ({})", sessions_path.display());
             Arc::new(FileStore::new(&sessions_path))
         }
         _ => {
@@ -281,7 +278,7 @@ async fn main() {
         .token
         .as_ref()
         .filter(|t| !t.is_empty() && !t.starts_with("${"))
-        .map(|t| orra::tools::discord::DiscordConfig::new(t));
+        .map(orra::tools::discord::DiscordConfig::new);
 
     // --- Hooks ---
     let mut hook_registry = HookRegistry::new();
@@ -703,7 +700,7 @@ async fn main() {
             .token
             .as_ref()
             .filter(|t| !t.is_empty() && !t.starts_with("${"))
-            .map(|t| orra::tools::discord::DiscordConfig::new(t)),
+            .map(orra::tools::discord::DiscordConfig::new),
     ));
 
     let app_state = web::AppState {

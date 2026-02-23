@@ -21,8 +21,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use orra::channels::federation::{
-    FederatedMessageInfo, FederatedSessionDetail, FederatedSessionInfo, HealthStatus,
-    RelayRequest, RelayResponse, SessionChatRequest, SessionChatResponse,
+    FederatedMessageInfo, FederatedSessionDetail, FederatedSessionInfo, HealthStatus, RelayRequest,
+    RelayResponse, SessionChatRequest, SessionChatResponse,
 };
 use orra::context::CharEstimator;
 use orra::message::Message;
@@ -120,10 +120,7 @@ pub async fn relay_message(
         .run(&ns, Message::user(&request.message))
         .await
         .map_err(|e| {
-            eprintln!(
-                "[federation] relay to '{}' failed: {e}",
-                request.agent
-            );
+            eprintln!("[federation] relay to '{}' failed: {e}", request.agent);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

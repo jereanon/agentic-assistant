@@ -20,7 +20,12 @@
 #   }
 flake:
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.herald;
@@ -51,9 +56,11 @@ in
         # Override data_dir so Herald writes state to the expected location
         # regardless of what the config file says.
         HERALD_DATA_DIR = cfg.dataDir;
-      } // lib.optionalAttrs (cfg.claudeCredentialsFile != null) {
+      }
+      // lib.optionalAttrs (cfg.claudeCredentialsFile != null) {
         CLAUDE_CREDENTIALS_FILE = cfg.claudeCredentialsFile;
-      } // cfg.extraEnvironment;
+      }
+      // cfg.extraEnvironment;
 
       serviceConfig = {
         ExecStart = "${cfg.package}/bin/herald --config ${cfg.configFile}";
@@ -73,7 +80,8 @@ in
         PrivateTmp = true;
         NoNewPrivileges = true;
         ReadWritePaths = [ cfg.dataDir ];
-      } // lib.optionalAttrs (cfg.environmentFile != null) {
+      }
+      // lib.optionalAttrs (cfg.environmentFile != null) {
         EnvironmentFile = cfg.environmentFile;
       };
     };

@@ -3,4 +3,5 @@
 //! Configuration is handled in this crate's config module; registration
 //! wires it up via `orra::tools::claude_code::register_tools`.
 
-pub use orra::tools::claude_code::{ClaudeCodeConfig, ClaudeCodeResumeTool, ClaudeCodeTool};
+// Registration is handled by orra::tools::claude_code::register_tools
+// invoked from tools::register_all.

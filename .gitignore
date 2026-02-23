@@ -17,5 +17,9 @@ assistant.toml
 # Session data (conversations, user IDs, etc.)
 data/
 
+# Nix
+/result
+.direnv/
+
 # Claude Code
 .claude/

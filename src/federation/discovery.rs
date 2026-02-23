@@ -30,9 +30,7 @@ pub async fn register_service(
 
     mdns.register(service_info)?;
 
-    eprintln!(
-        "[federation] mDNS: registered as '{instance_name}' on port {port}"
-    );
+    eprintln!("[federation] mDNS: registered as '{instance_name}' on port {port}");
 
     // Keep the daemon alive. It runs in its own background threads.
     // We just need to hold the ServiceDaemon to keep it registered.
@@ -82,9 +80,7 @@ pub async fn browse_peers(
 
                     if let Some(addr) = addresses.iter().next() {
                         let url = format!("http://{addr}:{port}");
-                        eprintln!(
-                            "[federation] mDNS: discovered peer '{short_name}' at {url}"
-                        );
+                        eprintln!("[federation] mDNS: discovered peer '{short_name}' at {url}");
 
                         // Try to discover agents from this peer
                         match PeerClient::discover_agents(&url, &global_secret).await {
@@ -120,19 +116,13 @@ pub async fn browse_peers(
                     }
                 }
                 mdns_sd::ServiceEvent::ServiceRemoved(_, fullname) => {
-                    let short_name = fullname
-                        .split('.')
-                        .next()
-                        .unwrap_or(&fullname)
-                        .to_string();
+                    let short_name = fullname.split('.').next().unwrap_or(&fullname).to_string();
 
                     // Only remove mDNS-discovered peers, not static ones
                     let peers = registry.list_peers().await;
                     if let Some(peer) = peers.iter().find(|p| p.name == short_name) {
                         if peer.source == PeerSource::Mdns {
-                            eprintln!(
-                                "[federation] mDNS: peer '{short_name}' removed"
-                            );
+                            eprintln!("[federation] mDNS: peer '{short_name}' removed");
                             registry.remove_peer(&short_name).await;
                         }
                     }

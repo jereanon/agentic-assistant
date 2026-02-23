@@ -104,10 +104,7 @@ impl PeerClient {
         base_url: &str,
         shared_secret: &str,
     ) -> Result<Vec<FederatedSessionInfo>, PeerClientError> {
-        let url = format!(
-            "{}/api/federation/sessions",
-            base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/api/federation/sessions", base_url.trim_end_matches('/'));
 
         let resp = reqwest::Client::new()
             .get(&url)

@@ -135,16 +135,8 @@ impl PeerRegistry {
         if let Some(peer_name) = peer {
             // Exact peer lookup
             if let Some(state) = map.get(peer_name) {
-                if let Some(info) = state
-                    .agents
-                    .iter()
-                    .find(|a| a.name.to_lowercase() == lower)
-                {
-                    return Some((
-                        state.url.clone(),
-                        state.shared_secret.clone(),
-                        info.clone(),
-                    ));
+                if let Some(info) = state.agents.iter().find(|a| a.name.to_lowercase() == lower) {
+                    return Some((state.url.clone(), state.shared_secret.clone(), info.clone()));
                 }
             }
             return None;
@@ -155,16 +147,8 @@ impl PeerRegistry {
             if state.health == PeerHealth::Unhealthy {
                 continue;
             }
-            if let Some(info) = state
-                .agents
-                .iter()
-                .find(|a| a.name.to_lowercase() == lower)
-            {
-                return Some((
-                    state.url.clone(),
-                    state.shared_secret.clone(),
-                    info.clone(),
-                ));
+            if let Some(info) = state.agents.iter().find(|a| a.name.to_lowercase() == lower) {
+                return Some((state.url.clone(), state.shared_secret.clone(), info.clone()));
             }
         }
 
@@ -254,9 +238,11 @@ impl FederationService {
             .iter()
             .filter(|a| {
                 self.config.exposed_agents.is_empty()
-                    || self.config.exposed_agents.iter().any(|e| {
-                        e.eq_ignore_ascii_case(&a.name)
-                    })
+                    || self
+                        .config
+                        .exposed_agents
+                        .iter()
+                        .any(|e| e.eq_ignore_ascii_case(&a.name))
             })
             .map(|a| RemoteAgentInfo {
                 name: a.name.clone(),
@@ -381,9 +367,7 @@ impl FederationService {
             // Register our service
             let instance_name = self.config.instance_name.clone();
             let register_handle = tokio::spawn(async move {
-                if let Err(e) =
-                    discovery::register_service(&instance_name, federation_port).await
-                {
+                if let Err(e) = discovery::register_service(&instance_name, federation_port).await {
                     eprintln!("[federation] mDNS registration failed: {e}");
                 }
             });
