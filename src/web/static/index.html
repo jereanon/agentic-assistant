@@ -660,6 +660,14 @@
             text-transform: capitalize;
         }
 
+        .message-timestamp {
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-secondary, #888);
+            margin-left: 8px;
+            text-transform: none;
+        }
+
         .cron-msg-badge {
             display: inline-block;
             padding: 1px 8px;
@@ -2137,7 +2145,19 @@
             return currentAgentName;
         }
 
-        function addMessage(role, content, scheduledLabel) {
+        function formatTimestamp(isoString) {
+            if (!isoString || isoString === '1970-01-01T00:00:00Z') return '';
+            const d = new Date(isoString);
+            if (isNaN(d.getTime())) return '';
+            let h = d.getHours();
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            return `${String(h).padStart(2, '0')}:${m}:${s} ${ampm}`;
+        }
+
+        function addMessage(role, content, scheduledLabel, timestamp) {
             const container = document.getElementById('messages');
             const div = document.createElement('div');
             const isAssistant = role !== 'user';
@@ -2151,11 +2171,13 @@
             const roleLabel = scheduledLabel
                 ? `<span class="cron-msg-badge">${escapeHtml(scheduledLabel)}</span>`
                 : escapeHtml(displayName);
+            const ts = formatTimestamp(timestamp);
+            const tsHtml = ts ? `<span class="message-timestamp">${ts}</span>` : '';
 
             div.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
                 <div class="message-content">
-                    <div class="message-role">${roleLabel}</div>
+                    <div class="message-role">${roleLabel}${tsHtml}</div>
                     <div class="message-text">${parsed}</div>
                 </div>
             `;

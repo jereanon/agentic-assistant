@@ -26,9 +26,10 @@ impl SessionNotifyHook {
 impl Hook for SessionNotifyHook {
     async fn before_session_save(&self, namespace: &Namespace, _session: &mut Session) {
         let key = namespace.key();
-        // Only notify for web sessions — these are the ones with a
-        // connected WebSocket client that can react to the event.
-        if key.starts_with("web:") {
+        // Notify for web sessions and cron jobs targeting web sessions.
+        // Web sessions have keys like "web:uuid", cron jobs targeting
+        // web sessions have keys like "cron:web" or "cron:web:uuid".
+        if key.starts_with("web:") || key.starts_with("cron:web") {
             let _ = self.events_tx.send(key);
         }
     }

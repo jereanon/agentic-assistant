@@ -725,7 +725,7 @@ async fn main() {
                         }
 
                         // Notify WS clients so the error shows up immediately
-                        if ns_key.starts_with("web:") {
+                        if ns_key.starts_with("web:") || ns_key.starts_with("cron:web") {
                             let _ = events_tx.send(ns_key);
                         }
                     }
