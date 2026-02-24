@@ -2203,14 +2203,16 @@ pub async fn list_agents(State(state): State<AppState>, headers: HeaderMap) -> i
     }
 
     let profiles = state.agent_profiles.read().await;
+    let default_model = &state.config_model;
     let mut agents: Vec<serde_json::Value> = profiles
         .iter()
         .map(|a| {
+            let effective_model = a.model.as_deref().unwrap_or(default_model);
             serde_json::json!({
                 "name": a.name,
                 "personality": a.personality,
                 "system_prompt": a.system_prompt,
-                "model": a.model,
+                "model": effective_model,
             })
         })
         .collect();

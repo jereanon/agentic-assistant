@@ -1278,6 +1278,75 @@
         [data-theme="dark"] .cron-status-badge.active { background: #1b5e20; color: #a5d6a7; }
         [data-theme="dark"] .cron-status-badge.paused { background: #bf360c; color: #ffab91; }
 
+        /* Agent card styles (agents tab) */
+        .agent-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: var(--bg);
+        }
+
+        .agent-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .agent-card-name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .agent-card-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .agent-card-actions button {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .agent-card-actions button:hover {
+            color: var(--text);
+            border-color: var(--text-secondary);
+        }
+
+        .agent-card-actions button.danger:hover {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .agent-card-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .agent-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .agent-badge.model { background: #e8f5e9; color: #2e7d32; }
+        .agent-badge.remote { background: var(--text-secondary); color: var(--bg); }
+
+        [data-theme="dark"] .agent-badge.model { background: #1b5e20; color: #a5d6a7; }
+        [data-theme="dark"] .agent-badge.remote { background: var(--text-secondary); color: var(--bg); }
+
         .cron-create-form {
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -3164,32 +3233,32 @@
 
             agents.forEach(agent => {
                 const div = document.createElement('div');
-                div.className = 'cron-job';
+                div.className = 'agent-card';
                 const personality = agent.personality.length > 60
                     ? agent.personality.substring(0, 60) + '...'
                     : agent.personality;
                 const modelBadge = agent.model
-                    ? `<span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.model)}</span>`
+                    ? `<span class="agent-badge model" style="margin-left:6px">${escapeHtml(agent.model)}</span>`
                     : '';
 
                 const isRemote = agent.remote;
                 const remoteBadge = isRemote
-                    ? `<span class="cron-status-badge" style="margin-left:6px;background:var(--text-secondary);color:var(--bg)">${escapeHtml(agent.instance)}</span>`
+                    ? `<span class="agent-badge remote" style="margin-left:6px">${escapeHtml(agent.instance)}</span>`
                     : '';
 
                 const actions = isRemote
                     ? ''
-                    : `<div class="cron-job-actions">
+                    : `<div class="agent-card-actions">
                             <button onclick="editAgent('${escapeHtml(agent.name)}')">Edit</button>
                             ${localAgents.length > 1 ? `<button class="danger" onclick="deleteAgent('${escapeHtml(agent.name)}')">Delete</button>` : ''}
                        </div>`;
 
                 div.innerHTML = `
-                    <div class="cron-job-header">
-                        <span class="cron-job-name">${escapeHtml(agent.name)}${modelBadge}${remoteBadge}</span>
+                    <div class="agent-card-header">
+                        <span class="agent-card-name">${escapeHtml(agent.name)}${modelBadge}${remoteBadge}</span>
                         ${actions}
                     </div>
-                    <div class="cron-job-meta" style="margin-top:4px;font-style:italic;opacity:0.8">
+                    <div class="agent-card-meta" style="margin-top:4px;font-style:italic;opacity:0.8">
                         ${escapeHtml(personality)}
                     </div>
                 `;
