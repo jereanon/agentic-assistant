@@ -1693,6 +1693,16 @@
                             <option value="web">Default (web)</option>
                         </select>
                     </div>
+                    <div class="cron-form-row">
+                        <div class="settings-field">
+                            <label for="cronMaxTurns">Max Turns <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(blank = default 10)</span></label>
+                            <input type="number" id="cronMaxTurns" placeholder="10" min="1">
+                        </div>
+                        <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                            <input type="checkbox" id="cronAutoApprove" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                            <label for="cronAutoApprove" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
+                        </div>
+                    </div>
                     <div class="settings-actions">
                         <button class="settings-btn" onclick="createCronJob()">Create</button>
                         <button class="settings-btn-secondary" onclick="toggleCronForm()">Cancel</button>
@@ -4163,6 +4173,8 @@
                         <span>${schedule}</span>
                         ${job.model ? `<span>Model: ${escapeHtml(job.model)}</span>` : ''}
                         <span>Channel: ${escapeHtml(resolveChannelName(job.namespace))}</span>
+                        ${job.max_turns ? `<span>Max turns: ${job.max_turns}</span>` : ''}
+                        ${job.auto_approve ? '<span>Auto-approve</span>' : ''}
                         <span>Next: ${nextRun}</span>
                         <span>Runs: ${job.run_count}</span>
                     </div>
@@ -4283,6 +4295,16 @@
                     <label>Channel</label>
                     <select id="editCronNamespace-${id}"></select>
                 </div>
+                <div class="cron-form-row">
+                    <div class="settings-field">
+                        <label>Max Turns <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(blank = default 10)</span></label>
+                        <input type="number" id="editCronMaxTurns-${id}" value="${job.max_turns || ''}" placeholder="10" min="1">
+                    </div>
+                    <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                        <input type="checkbox" id="editCronAutoApprove-${id}" ${job.auto_approve ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                        <label for="editCronAutoApprove-${id}" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
+                    </div>
+                </div>
                 <div class="settings-actions">
                     <button class="settings-btn" onclick="saveCronJob('${id}')">Save</button>
                     <button class="settings-btn-secondary" onclick="cancelCronEdit('${id}')">Cancel</button>
@@ -4356,7 +4378,11 @@
                 const headers = { 'Content-Type': 'application/json' };
                 if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
+                const editMaxTurns = parseInt(document.getElementById(`editCronMaxTurns-${id}`).value, 10);
+                const editAutoApprove = document.getElementById(`editCronAutoApprove-${id}`).checked;
                 const updateBody = { name, schedule, payload, namespace: namespace || 'web', model: editModel };
+                if (!isNaN(editMaxTurns) && editMaxTurns > 0) updateBody.max_turns = editMaxTurns;
+                if (editAutoApprove) updateBody.auto_approve = true;
 
                 const resp = await fetch(`/api/cron/${encodeURIComponent(id)}`, {
                     method: 'PUT',
@@ -4461,6 +4487,9 @@
 
                 const createBody = { name, schedule, payload, namespace: namespace || 'web' };
                 if (cronModel) createBody.model = cronModel;
+                const maxTurns = parseInt(document.getElementById('cronMaxTurns').value, 10);
+                if (!isNaN(maxTurns) && maxTurns > 0) createBody.max_turns = maxTurns;
+                if (document.getElementById('cronAutoApprove').checked) createBody.auto_approve = true;
 
                 const resp = await fetch('/api/cron', {
                     method: 'POST',

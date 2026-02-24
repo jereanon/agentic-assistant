@@ -589,13 +589,19 @@ async fn main() {
         }
 
         // Wire up the callback that runs when a cron job fires
-        let rt = runtime.clone();
+        let cron_runtimes = runtimes.clone();
+        let cron_fallback_rt = runtime.clone();
+        let cron_default_agent = default_agent.clone();
         let events_tx = session_events_tx.clone();
         let cron_interactive = interactive_count.clone();
+        let cron_store = store.clone();
         let cron_callback: orra::cron::service::CronCallback = Arc::new(move |job| {
-            let rt = rt.clone();
+            let rts = cron_runtimes.clone();
+            let fallback_rt = cron_fallback_rt.clone();
+            let default_agent = cron_default_agent.clone();
             let events_tx = events_tx.clone();
             let interactive = cron_interactive.clone();
+            let store = cron_store.clone();
             tokio::spawn(async move {
                 let raw_prompt = match &job.payload {
                     CronPayload::AgentTurn { prompt } => prompt.clone(),
@@ -643,6 +649,30 @@ async fn main() {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
 
+                // Resolve the agent runtime (same approach as WS handler)
+                let rt = {
+                    let rts_guard = rts.read().await;
+                    if rts_guard.is_empty() {
+                        fallback_rt.clone()
+                    } else {
+                        let key = default_agent.read().await.to_lowercase();
+                        rts_guard.get(&key).cloned().unwrap_or(fallback_rt.clone())
+                    }
+                };
+
+                // If auto_approve is set, force chaos_mode on the session
+                // before the runtime loads it (the approval hook reads
+                // chaos_mode from session metadata in after_session_load).
+                if job.auto_approve.unwrap_or(false) {
+                    if let Ok(Some(mut session)) = store.load(&ns).await {
+                        session.metadata.insert(
+                            "chaos_mode".into(),
+                            serde_json::json!(true),
+                        );
+                        let _ = store.save(&session).await;
+                    }
+                }
+
                 hlog!(
                     "[cron] Running job '{}' in namespace {}",
                     job.name,
@@ -664,7 +694,24 @@ async fn main() {
                         }
                     }
                     Err(e) => {
-                        hlog!("[cron] Job '{}' failed: {}", job.name, e);
+                        let error_msg = format!(
+                            "Error while running scheduled task '{}': {}",
+                            job.name, e
+                        );
+                        hlog!("[cron] {}", error_msg);
+
+                        // Append the error as an assistant message so it appears
+                        // in the chat session (the runtime already saved partial
+                        // progress, so we load → push → save).
+                        if let Ok(Some(mut session)) = store.load(&ns).await {
+                            session.push_message(Message::assistant(&error_msg));
+                            let _ = store.save(&session).await;
+                        }
+
+                        // Notify WS clients so the error shows up immediately
+                        if ns_key.starts_with("web:") {
+                            let _ = events_tx.send(ns_key);
+                        }
                     }
                 }
             })

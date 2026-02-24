@@ -1408,6 +1408,8 @@ pub struct CreateCronJobRequest {
     #[serde(default = "default_namespace")]
     pub namespace: String,
     pub model: Option<String>,
+    pub max_turns: Option<usize>,
+    pub auto_approve: Option<bool>,
 }
 
 fn default_namespace() -> String {
@@ -1469,6 +1471,8 @@ pub async fn create_cron_job(
 
     let mut job = CronJob::new(&request.name, schedule, payload, &request.namespace);
     job.model = request.model;
+    job.max_turns = request.max_turns;
+    job.auto_approve = request.auto_approve;
     match svc.add_job(job).await {
         Ok(job) => (StatusCode::CREATED, Json(serde_json::json!(job))).into_response(),
         Err(e) => (
@@ -1589,6 +1593,8 @@ pub struct UpdateCronJobRequest {
     pub payload: Option<serde_json::Value>,
     pub namespace: Option<String>,
     pub model: Option<String>,
+    pub max_turns: Option<usize>,
+    pub auto_approve: Option<bool>,
 }
 
 pub async fn update_cron_job(
@@ -1647,6 +1653,8 @@ pub async fn update_cron_job(
         job.namespace = ns;
     }
     job.model = request.model;
+    job.max_turns = request.max_turns;
+    job.auto_approve = request.auto_approve;
     if let Some(ref schedule_val) = request.schedule {
         match parse_schedule_from_json(schedule_val) {
             Ok(s) => {
