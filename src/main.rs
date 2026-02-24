@@ -29,7 +29,7 @@ use orra::policy::PolicyRegistry;
 use orra::provider::Provider;
 use orra::providers::claude::ClaudeProvider;
 use orra::providers::openai::OpenAIProvider;
-use orra::runtime::{Runtime, RuntimeConfig};
+use orra::runtime::{Runtime, RuntimeConfig, RuntimeError};
 use orra::scheduler::Scheduler;
 use orra::store::InMemoryStore;
 use orra::stores::file::FileStore;
@@ -664,13 +664,15 @@ async fn main() {
                 // before the runtime loads it (the approval hook reads
                 // chaos_mode from session metadata in after_session_load).
                 if job.auto_approve.unwrap_or(false) {
-                    if let Ok(Some(mut session)) = store.load(&ns).await {
-                        session.metadata.insert(
-                            "chaos_mode".into(),
-                            serde_json::json!(true),
-                        );
-                        let _ = store.save(&session).await;
-                    }
+                    let mut session = match store.load(&ns).await {
+                        Ok(Some(s)) => s,
+                        _ => orra::store::Session::new(ns.clone()),
+                    };
+                    session.metadata.insert(
+                        "chaos_mode".into(),
+                        serde_json::json!(true),
+                    );
+                    let _ = store.save(&session).await;
                 }
 
                 hlog!(
@@ -694,10 +696,18 @@ async fn main() {
                         }
                     }
                     Err(e) => {
-                        let error_msg = format!(
-                            "Error while running scheduled task '{}': {}",
-                            job.name, e
-                        );
+                        let error_msg = if let RuntimeError::MaxTurnsExceeded(n) = &e {
+                            format!(
+                                "Scheduled task '{}' ran out of turns ({} max). \
+                                 You can increase the limit in the task settings.",
+                                job.name, n
+                            )
+                        } else {
+                            format!(
+                                "Error while running scheduled task '{}': {}",
+                                job.name, e
+                            )
+                        };
                         hlog!("[cron] {}", error_msg);
 
                         // Append the error as an assistant message so it appears
