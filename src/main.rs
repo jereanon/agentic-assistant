@@ -327,6 +327,10 @@ async fn main() {
         .filter(|t| !t.is_empty() && !t.starts_with("${"))
         .map(|t| orra::tools::discord::DiscordConfig::new(t));
 
+    // --- Session event broadcast (for pushing updates to WebSocket clients) ---
+    // Created early so hooks can reference the sender.
+    let (session_events_tx, _) = tokio::sync::broadcast::channel::<String>(64);
+
     // --- Hooks ---
     let mut hook_registry = HookRegistry::new();
     hook_registry.register(Arc::new(hooks::file_logging::FileLoggingHook::new()));
@@ -340,6 +344,9 @@ async fn main() {
         approval_hook
     };
     hook_registry.register(Arc::new(approval_hook));
+    hook_registry.register(Arc::new(
+        hooks::session_notify::SessionNotifyHook::new(session_events_tx.clone()),
+    ));
 
     // --- Metrics ---
     let _metrics = if config.metrics.enabled {
@@ -502,6 +509,9 @@ async fn main() {
                 agent_approval_hook
             };
             agent_hook_registry.register(Arc::new(agent_approval_hook));
+            agent_hook_registry.register(Arc::new(
+                hooks::session_notify::SessionNotifyHook::new(session_events_tx.clone()),
+            ));
 
             let mut agent_rt = Runtime::new(
                 provider_for_agent,
@@ -574,9 +584,6 @@ async fn main() {
     } else {
         None
     };
-
-    // --- Session event broadcast (for pushing cron results to WebSocket clients) ---
-    let (session_events_tx, _) = tokio::sync::broadcast::channel::<String>(64);
 
     // --- Interactive-request counter (shared with cron callback) ---
     let interactive_count = Arc::new(AtomicUsize::new(0));
@@ -690,10 +697,9 @@ async fn main() {
                             job.name,
                             result.turns.len()
                         );
-                        // Notify WebSocket clients that this session was updated
-                        if ns_key.starts_with("web:") {
-                            let _ = events_tx.send(ns_key);
-                        }
+                        // WS notification is handled automatically by the
+                        // SessionNotifyHook which fires on every session save
+                        // (including the final save at the end of run_with_model).
                     }
                     Err(e) => {
                         let error_msg = if let RuntimeError::MaxTurnsExceeded(n) = &e {

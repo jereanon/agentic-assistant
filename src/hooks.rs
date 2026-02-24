@@ -4,3 +4,4 @@ pub use orra::hooks::working_directory;
 
 // Herald-specific hooks.
 pub mod file_logging;
+pub mod session_notify;
