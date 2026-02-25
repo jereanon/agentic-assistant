@@ -95,6 +95,9 @@ pub struct Config {
     /// unless they are absolute paths.
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
+    /// General settings (timezone, location).
+    #[serde(default)]
+    pub general: GeneralConfig,
     /// Legacy single-agent config (backward compat). Prefer `agents`.
     #[serde(default)]
     pub agent: AgentConfig,
@@ -563,6 +566,25 @@ impl Default for MetricsConfig {
         Self {
             enabled: false,
             log_metrics: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeneralConfig {
+    /// IANA timezone string (e.g. "America/New_York").
+    #[serde(default)]
+    pub timezone: String,
+    /// Freeform location string (e.g. "New York, NY").
+    #[serde(default)]
+    pub location: String,
+}
+
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            timezone: String::new(),
+            location: String::new(),
         }
     }
 }
@@ -1744,6 +1766,109 @@ pub(crate) fn read_federation_settings(path: &Path) -> Result<FederationConfig, 
 }
 
 /// Read the Discord token from the TOML config file (without full Config::load).
+pub(crate) fn read_general_settings(path: &Path) -> Result<GeneralConfig, ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let table: toml::Value = content.parse().map_err(|e: toml::de::Error| ConfigError::Parse(e))?;
+
+    let timezone = table
+        .get("general")
+        .and_then(|g| g.get("timezone"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let location = table
+        .get("general")
+        .and_then(|g| g.get("location"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(GeneralConfig { timezone, location })
+}
+
+pub(crate) fn save_general_settings(
+    path: &Path,
+    timezone: &str,
+    location: &str,
+) -> Result<(), ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut in_general_section = false;
+    let mut tz_replaced = false;
+    let mut loc_replaced = false;
+    let mut general_section_end = None;
+    let mut general_section_found = false;
+
+    for i in 0..lines.len() {
+        let trimmed = lines[i].trim().to_string();
+
+        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
+            if trimmed == "[general]" {
+                in_general_section = true;
+                general_section_found = true;
+                continue;
+            } else if in_general_section {
+                general_section_end = Some(i);
+                in_general_section = false;
+            }
+        }
+
+        if in_general_section {
+            if trimmed.starts_with("timezone") || trimmed.starts_with("# timezone") {
+                lines[i] = format!("timezone = \"{}\"", timezone);
+                tz_replaced = true;
+            }
+            if trimmed.starts_with("location") || trimmed.starts_with("# location") {
+                lines[i] = format!("location = \"{}\"", location);
+                loc_replaced = true;
+            }
+        }
+    }
+
+    if !general_section_found {
+        // Append [general] section at the end of the file
+        lines.push(String::new());
+        lines.push("[general]".to_string());
+        lines.push(format!("timezone = \"{}\"", timezone));
+        lines.push(format!("location = \"{}\"", location));
+    } else {
+        let insert_pos = if in_general_section {
+            lines.len()
+        } else {
+            general_section_end.unwrap_or(lines.len())
+        };
+
+        let mut insertions = Vec::new();
+        if !loc_replaced {
+            insertions.push(format!("location = \"{}\"", location));
+        }
+        if !tz_replaced {
+            insertions.push(format!("timezone = \"{}\"", timezone));
+        }
+
+        for (offset, line) in insertions.into_iter().enumerate() {
+            lines.insert(insert_pos + offset, line);
+        }
+    }
+
+    let result = lines.join("\n");
+    std::fs::write(path, &result).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(())
+}
+
 pub(crate) fn read_discord_token(path: &Path) -> Result<Option<String>, ConfigError> {
     let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
         path: path.to_path_buf(),

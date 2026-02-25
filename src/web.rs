@@ -131,6 +131,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/config", post(handlers::configure_provider))
         .route("/status", get(handlers::status))
         .route("/settings", get(handlers::get_settings))
+        .route("/settings/general", put(handlers::update_general))
         .route("/settings/provider", put(handlers::update_provider))
         .route("/settings/discord", put(handlers::update_discord).delete(handlers::remove_discord))
         .route("/settings/discord/disconnect", post(handlers::disconnect_discord))

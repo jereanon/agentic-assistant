@@ -624,9 +624,16 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
         })
     };
 
+    // Read general settings from config
+    let general = config::read_general_settings(&state.config_path).unwrap_or_default();
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
+            "general": {
+                "timezone": general.timezone,
+                "location": general.location,
+            },
             "provider": {
                 "auth_source": auth_source,
                 "configured": state.dynamic_provider.is_configured(),
@@ -642,6 +649,56 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
                 "allowed_users": discord_state.allowed_users,
             },
             "federation": federation,
+        })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/settings/general
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct UpdateGeneralRequest {
+    pub timezone: Option<String>,
+    pub location: Option<String>,
+}
+
+pub async fn update_general(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateGeneralRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let timezone = request.timezone.as_deref().unwrap_or("");
+    let location = request.location.as_deref().unwrap_or("");
+
+    if let Err(e) = config::save_general_settings(&state.config_path, timezone, location) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to save settings: {}", e),
+                code: "config_write_error".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    hlog!(
+        "[settings] General settings updated: timezone={}, location={}",
+        timezone,
+        location
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "timezone": timezone,
+            "location": location,
         })),
     )
         .into_response()

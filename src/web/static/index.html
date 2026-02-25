@@ -1543,6 +1543,16 @@
                 <input type="text" id="setupAssistantName" placeholder="Herald">
             </div>
 
+            <div class="setup-field">
+                <label for="setupTimezone">Timezone</label>
+                <select id="setupTimezone"></select>
+            </div>
+
+            <div class="setup-field">
+                <label for="setupLocation">Location</label>
+                <input type="text" id="setupLocation" placeholder="e.g. New York, NY">
+            </div>
+
             <hr style="border:none;border-top:1px solid var(--border);margin:18px 0 14px">
             <p style="margin:0 0 12px;font-size:13px;color:var(--text-secondary)">
                 LLM provider configuration (optional &mdash; can be set up later in Settings)
@@ -1606,6 +1616,18 @@
                     <input type="text" id="settingsUserName" placeholder="User"
                         oninput="userDisplayName=this.value.trim(); localStorage.setItem('agentic_user_name', userDisplayName)">
                 </div>
+                <div class="settings-field">
+                    <label for="settingsTimezone">Timezone</label>
+                    <select id="settingsTimezone"></select>
+                </div>
+                <div class="settings-field">
+                    <label for="settingsLocation">Location</label>
+                    <input type="text" id="settingsLocation" placeholder="e.g. New York, NY">
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" onclick="saveGeneralSettings()">Save General</button>
+                </div>
+                <div class="settings-status" id="generalStatus"></div>
                 <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
                 <div style="margin-bottom:12px">
                     <span style="font-size:12px;color:var(--text-secondary)">Auth source:</span>
@@ -3852,6 +3874,71 @@
                 .catch(() => {});
         }
 
+        // Populate timezone dropdowns with IANA timezone list
+        function populateTimezoneSelect(selectEl) {
+            const timezones = Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [
+                'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+                'America/Anchorage','Pacific/Honolulu','America/Phoenix','America/Toronto',
+                'America/Vancouver','America/Sao_Paulo','America/Argentina/Buenos_Aires',
+                'Europe/London','Europe/Paris','Europe/Berlin','Europe/Moscow',
+                'Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo',
+                'Asia/Singapore','Australia/Sydney','Pacific/Auckland','UTC'
+            ];
+            const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            selectEl.innerHTML = '<option value="">(auto-detect)</option>';
+            timezones.forEach(tz => {
+                const opt = document.createElement('option');
+                opt.value = tz;
+                opt.textContent = tz.replace(/_/g, ' ');
+                if (tz === detected) opt.textContent += ' (detected)';
+                selectEl.appendChild(opt);
+            });
+        }
+
+        // Initialize timezone dropdowns
+        const setupTzEl = document.getElementById('setupTimezone');
+        if (setupTzEl) populateTimezoneSelect(setupTzEl);
+        const settingsTzEl = document.getElementById('settingsTimezone');
+        if (settingsTzEl) populateTimezoneSelect(settingsTzEl);
+
+        // Auto-select detected timezone on setup screen
+        if (setupTzEl) {
+            const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (detected) setupTzEl.value = detected;
+        }
+
+        async function saveGeneralSettings() {
+            const statusEl = document.getElementById('generalStatus');
+            statusEl.textContent = 'Saving...';
+            statusEl.className = 'settings-status';
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings/general', {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({
+                        timezone: document.getElementById('settingsTimezone').value,
+                        location: document.getElementById('settingsLocation').value.trim(),
+                    }),
+                });
+
+                const data = await resp.json();
+                if (resp.ok) {
+                    statusEl.textContent = 'General settings saved!';
+                    statusEl.className = 'settings-status success';
+                } else {
+                    statusEl.textContent = data.error || 'Failed to save.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
         async function loadSettingsData() {
             try {
                 const headers = {};
@@ -3863,6 +3950,16 @@
 
                 // User display name (stored in localStorage)
                 document.getElementById('settingsUserName').value = userDisplayName;
+
+                // General settings (timezone, location)
+                const tz = data.general?.timezone || '';
+                const loc = data.general?.location || '';
+                const tzSelect = document.getElementById('settingsTimezone');
+                if (tzSelect && tzSelect.options.length > 0) {
+                    tzSelect.value = tz;
+                }
+                const locInput = document.getElementById('settingsLocation');
+                if (locInput) locInput.value = loc;
 
                 // Provider
                 const badge = document.getElementById('settingsAuthBadge');
@@ -4857,6 +4954,17 @@
                             }
                         }
                     }
+                }
+
+                // Save timezone and location
+                const setupTz = document.getElementById('setupTimezone').value;
+                const setupLoc = document.getElementById('setupLocation').value.trim();
+                if (setupTz || setupLoc) {
+                    await fetch('/api/settings/general', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', ...authHeaders },
+                        body: JSON.stringify({ timezone: setupTz, location: setupLoc }),
+                    });
                 }
 
                 // Optionally configure the LLM provider if an API key was provided

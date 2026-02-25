@@ -226,6 +226,7 @@ mod tests {
     fn minimal_config() -> Config {
         Config {
             data_dir: std::path::PathBuf::from("./data"),
+            general: GeneralConfig::default(),
             agent: AgentConfig::default(),
             agents: Vec::new(),
             discord: DiscordConfig {
