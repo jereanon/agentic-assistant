@@ -1779,6 +1779,10 @@
                             <input type="checkbox" id="cronAutoApprove" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
                             <label for="cronAutoApprove" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                         </div>
+                        <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                            <input type="checkbox" id="cronLightweight" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                            <label for="cronLightweight" style="cursor:pointer;margin:0;font-weight:normal">Lightweight (no tools)</label>
+                        </div>
                     </div>
                     <div class="settings-actions">
                         <button class="settings-btn" onclick="createCronJob()">Create</button>
@@ -4269,6 +4273,7 @@
                         <span>Channel: ${escapeHtml(resolveChannelName(job.namespace))}</span>
                         ${job.max_turns ? `<span>Max turns: ${job.max_turns}</span>` : ''}
                         ${job.auto_approve ? '<span>Auto-approve</span>' : ''}
+                        ${job.lightweight ? '<span>Lightweight</span>' : ''}
                         <span>Next: ${nextRun}</span>
                         <span>Runs: ${job.run_count}</span>
                     </div>
@@ -4398,6 +4403,10 @@
                         <input type="checkbox" id="editCronAutoApprove-${id}" ${job.auto_approve ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
                         <label for="editCronAutoApprove-${id}" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                     </div>
+                    <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                        <input type="checkbox" id="editCronLightweight-${id}" ${job.lightweight ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                        <label for="editCronLightweight-${id}" style="cursor:pointer;margin:0;font-weight:normal">Lightweight (no tools)</label>
+                    </div>
                 </div>
                 <div class="settings-actions">
                     <button class="settings-btn" onclick="saveCronJob('${id}')">Save</button>
@@ -4477,6 +4486,8 @@
                 const updateBody = { name, schedule, payload, namespace: namespace || 'web', model: editModel };
                 if (!isNaN(editMaxTurns) && editMaxTurns > 0) updateBody.max_turns = editMaxTurns;
                 if (editAutoApprove) updateBody.auto_approve = true;
+                const editLightweight = document.getElementById(`editCronLightweight-${id}`).checked;
+                if (editLightweight) updateBody.lightweight = true;
 
                 const resp = await fetch(`/api/cron/${encodeURIComponent(id)}`, {
                     method: 'PUT',
@@ -4584,6 +4595,7 @@
                 const maxTurns = parseInt(document.getElementById('cronMaxTurns').value, 10);
                 if (!isNaN(maxTurns) && maxTurns > 0) createBody.max_turns = maxTurns;
                 if (document.getElementById('cronAutoApprove').checked) createBody.auto_approve = true;
+                if (document.getElementById('cronLightweight').checked) createBody.lightweight = true;
 
                 const resp = await fetch('/api/cron', {
                     method: 'POST',
