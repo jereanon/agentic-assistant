@@ -193,8 +193,8 @@ async fn main() {
             auth_source = "config".to_string();
         }
 
-        let real_provider: Arc<dyn Provider> = match config.provider.provider_type.as_str() {
-            "openai" => {
+        let real_provider: Arc<dyn Provider> = match config.provider.provider_type {
+            config::ProviderType::OpenAI => {
                 let mut p = OpenAIProvider::new(api_key, &config.provider.model);
                 if let Some(ref url) = config.provider.api_url {
                     p = p.with_api_url(url);
@@ -205,7 +205,7 @@ async fn main() {
                 );
                 Arc::new(p)
             }
-            _ => {
+            config::ProviderType::Claude => {
                 hlog!(
                     "[init] provider: claude ({}) [source: {}]",
                     config.provider.model, auth_source
@@ -236,15 +236,15 @@ async fn main() {
     hlog!("[init] data directory: {}", config.data_dir.display());
 
     // --- Session store ---
-    let store: Arc<dyn orra::store::SessionStore> = match config.sessions.store.as_str() {
-        "file" => {
+    let store: Arc<dyn orra::store::SessionStore> = match config.sessions.store {
+        config::SessionStoreType::File => {
             hlog!(
                 "[init] session store: file ({})",
                 sessions_path.display()
             );
             Arc::new(FileStore::new(&sessions_path))
         }
-        _ => {
+        config::SessionStoreType::Memory => {
             hlog!("[init] session store: in-memory");
             Arc::new(InMemoryStore::new())
         }
@@ -787,7 +787,7 @@ async fn main() {
         match discord_manager
             .connect(
                 discord_token,
-                &config.discord.filter,
+                config.discord.filter,
                 config.discord.allowed_users.clone(),
                 &config.discord.namespace_prefix,
             )
@@ -853,7 +853,7 @@ async fn main() {
         runtime: runtime.clone(),
         store: store.clone(),
         dynamic_provider: dynamic_provider.clone(),
-        config_provider_type: config.provider.provider_type.clone(),
+        config_provider_type: config.provider.provider_type,
         config_model: config.provider.model.clone(),
         config_api_url: config.provider.api_url.clone(),
         auth_source: Arc::new(tokio::sync::RwLock::new(auth_source.clone())),
