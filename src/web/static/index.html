@@ -1758,7 +1758,7 @@
                     </div>
                     <div class="settings-field">
                         <label for="cronPayloadValue">Prompt / Message</label>
-                        <input type="text" id="cronPayloadValue" placeholder="e.g. Check the weather forecast">
+                        <textarea id="cronPayloadValue" placeholder="e.g. Check the weather forecast" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;resize:vertical;min-height:120px"></textarea>
                     </div>
                     <div class="settings-field">
                         <label for="cronModel">Model</label>
@@ -4396,7 +4396,7 @@
                 </div>
                 <div class="settings-field">
                     <label>Prompt / Message</label>
-                    <input type="text" id="editCronPayloadVal-${id}" value="${escapeHtml(payloadValue)}">
+                    <textarea id="editCronPayloadVal-${id}" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;resize:vertical;min-height:120px">${escapeHtml(payloadValue)}</textarea>
                 </div>
                 <div class="settings-field">
                     <label>Model</label>
