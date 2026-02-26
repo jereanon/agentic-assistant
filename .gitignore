@@ -16,6 +16,7 @@ assistant.toml
 
 # Session data (conversations, user IDs, etc.)
 data/
+data-*/
 
 # Claude Code
 .claude/
